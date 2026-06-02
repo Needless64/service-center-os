@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { parseIncomingWebhook, markAsRead } from '@/lib/whatsapp/client'
+import { parseIncomingWebhook, markAsRead, sendText } from '@/lib/whatsapp/client'
 import { handleIncomingMessage } from '@/lib/whatsapp/conversationHandler'
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN!
@@ -34,20 +34,16 @@ export async function POST(req: NextRequest) {
     const message = parseIncomingWebhook(body)
     if (!message) return NextResponse.json({ status: 'no_message' }, { status: 200 })
 
-    // Always respond 200 immediately — process async
-    void (async () => {
+    // Process synchronously — Vercel freezes process after response, async work dies
+    try {
+      await markAsRead(message.messageId)
+      await handleIncomingMessage(message.from, message.text ?? '', message.interactiveId)
+    } catch (err) {
+      console.error('[webhook] Processing error:', err)
       try {
-        await markAsRead(message.messageId)
-        await handleIncomingMessage(message.from, message.text ?? '', message.interactiveId)
-      } catch (err) {
-        console.error('[webhook] Processing error:', err)
-        // Send fallback so user isn't left hanging
-        try {
-          const { sendText } = await import('@/lib/whatsapp/client')
-          await sendText(message.from, `Sorry, something went wrong. Please try again.`)
-        } catch {}
-      }
-    })()
+        await sendText(message.from, `Sorry, something went wrong. Please try again.`)
+      } catch {}
+    }
 
     return NextResponse.json({ status: 'ok' }, { status: 200 })
   } catch (err) {
