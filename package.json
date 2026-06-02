@@ -19,7 +19,7 @@
     "groq": "^3.57.0",
     "lucide-react": "^0.468.0",
     "nanoid": "^5.0.7",
-    "next": "^15.3.2",
+    "next": "^15.4.3",
     "next-sanity": "^9.8.0",
     "node-cron": "^3.0.3",
     "react": "^19.0.0",
@@ -34,7 +34,7 @@
     "autoprefixer": "^10.4.20",
     "cloudflared": "^0.7.1",
     "eslint": "^9",
-    "eslint-config-next": "^15.3.2",
+    "eslint-config-next": "^15.4.3",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
