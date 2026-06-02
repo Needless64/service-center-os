@@ -1,4 +1,6 @@
-// In-memory session store. Replace with Redis for multi-instance production.
+// Sanity-backed session store — survives across serverless invocations
+
+import { sanityClient } from '../sanity/client'
 
 export type ConversationState =
   | 'IDLE'
@@ -17,22 +19,17 @@ export type ConversationState =
 
 export type SessionData = {
   state: ConversationState
-  // Booking data being collected
   serviceType?: string
   vehicleNumber?: string
   vehicleModel?: string
   manufacturer?: string
   notes?: string
   customerName?: string
-  // Customer / booking refs
   existingCustomerId?: string
   isReturningCustomer?: boolean
-  // Slot selection
   selectedDate?: string
   selectedTime?: string
   availableDates?: string[]
-  slotsForDate?: { time: string; slotId: string; spotsLeft: number }[]
-  // Active booking for reschedule
   activeBookingId?: string
   activeBookingDocId?: string
   lastActivity: number
@@ -40,34 +37,60 @@ export type SessionData = {
 
 const SESSION_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
-const sessions = new Map<string, SessionData>()
+// ─── Sanity fetch ────────────────────────────────────────────────────────────
 
-export function getSession(phone: string): SessionData {
-  const existing = sessions.get(phone)
-  if (existing && Date.now() - existing.lastActivity < SESSION_TTL_MS) {
-    return existing
+async function fetchSession(phone: string): Promise<SessionData | null> {
+  try {
+    const doc = await sanityClient.fetch(
+      `*[_type == "whatsappSession" && phone == $phone][0]`,
+      { phone }
+    )
+    if (!doc) return null
+    if (Date.now() - doc.lastActivity > SESSION_TTL_MS) return null
+    return doc.data as SessionData
+  } catch {
+    return null
   }
-  const fresh: SessionData = { state: 'IDLE', lastActivity: Date.now() }
-  sessions.set(phone, fresh)
-  return fresh
 }
 
-export function updateSession(phone: string, updates: Partial<SessionData>) {
-  const session = getSession(phone)
-  Object.assign(session, updates, { lastActivity: Date.now() })
-  sessions.set(phone, session)
-}
-
-export function resetSession(phone: string) {
-  sessions.set(phone, { state: 'IDLE', lastActivity: Date.now() })
-}
-
-// Clean up expired sessions every 15 minutes
-setInterval(() => {
-  const now = Date.now()
-  for (const [phone, session] of sessions.entries()) {
-    if (now - session.lastActivity > SESSION_TTL_MS) {
-      sessions.delete(phone)
+async function saveSession(phone: string, data: SessionData): Promise<void> {
+  try {
+    const existing = await sanityClient.fetch(
+      `*[_type == "whatsappSession" && phone == $phone][0]._id`,
+      { phone }
+    )
+    if (existing) {
+      await sanityClient.patch(existing).set({ data, lastActivity: data.lastActivity }).commit()
+    } else {
+      await sanityClient.create({ _type: 'whatsappSession', phone, data, lastActivity: data.lastActivity })
     }
-  }
-}, 15 * 60 * 1000)
+  } catch {}
+}
+
+async function deleteSession(phone: string): Promise<void> {
+  try {
+    const id = await sanityClient.fetch(
+      `*[_type == "whatsappSession" && phone == $phone][0]._id`,
+      { phone }
+    )
+    if (id) await sanityClient.delete(id)
+  } catch {}
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+export async function getSession(phone: string): Promise<SessionData> {
+  const existing = await fetchSession(phone)
+  if (existing) return existing
+  return { state: 'IDLE', lastActivity: Date.now() }
+}
+
+export async function updateSession(phone: string, updates: Partial<SessionData>): Promise<void> {
+  const current = await getSession(phone)
+  const updated = { ...current, ...updates, lastActivity: Date.now() }
+  await saveSession(phone, updated)
+}
+
+export async function resetSession(phone: string): Promise<void> {
+  await deleteSession(phone)
+}

@@ -70,7 +70,7 @@ export async function showBookingStatus(phone: string, booking: SanityBookingLik
     const canCancel = minsLeft > RESCHEDULE_LOCK_MINUTES
 
     message += `\n\n_Reminders will be sent before your appointment._`
-    updateSession(phone, { state: 'IDLE', activeBookingDocId: booking._id, activeBookingId: booking.bookingId })
+    await updateSession(phone, { state: 'IDLE', activeBookingDocId: booking._id, activeBookingId: booking.bookingId })
     await sendText(phone, message)
 
     if (canCancel) {
@@ -144,7 +144,7 @@ async function promptCancel(phone: string, booking: SanityBookingLike) {
     return
   }
 
-  updateSession(phone, { activeBookingDocId: booking._id, activeBookingId: booking.bookingId })
+  await updateSession(phone, { activeBookingDocId: booking._id, activeBookingId: booking.bookingId })
   await sendButtons(
     phone,
     `Cancel *${booking.bookingId}*?\n📅 ${format(new Date(booking.scheduledDate + 'T00:00:00'), 'EEE, d MMM')} @ ${format(new Date(`2000-01-01T${booking.scheduledTime}`), 'h:mm a')}`,
@@ -173,12 +173,12 @@ export async function handleCancelBookingSelection(phone: string, bookingDocId: 
 // ─── Confirm cancel ───────────────────────────────────────────────────────────
 
 export async function handleConfirmCancel(phone: string) {
-  const session = getSession(phone)
+  const session = await getSession(phone)
   const { activeBookingDocId, activeBookingId } = session
 
   if (!activeBookingDocId) {
     await sendText(phone, `Could not find your booking. Please try again.`)
-    resetSession(phone)
+    await resetSession(phone)
     return
   }
 
@@ -188,14 +188,14 @@ export async function handleConfirmCancel(phone: string) {
     const booking = bookings.find((b) => b._id === activeBookingDocId)
     if (booking && minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime) <= RESCHEDULE_LOCK_MINUTES) {
       await sendText(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us.`)
-      resetSession(phone)
+      await resetSession(phone)
       return
     }
   }
 
   await cancelBooking(activeBookingDocId)
   await sendText(phone, `✅ Booking *${activeBookingId}* cancelled.\n\nTo book again, reply *book*. 🙏`)
-  resetSession(phone)
+  await resetSession(phone)
 }
 
 // ─── Local type helper ────────────────────────────────────────────────────────
