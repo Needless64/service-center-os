@@ -1,0 +1,42 @@
+{
+  "name": "service-now",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "sanity": "sanity dev --port 3333"
+  },
+  "dependencies": {
+    "@sanity/client": "^6.21.0",
+    "@sanity/image-url": "^1.0.2",
+    "@sanity/vision": "^3.65.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "googleapis": "^144.0.0",
+    "groq": "^3.57.0",
+    "lucide-react": "^0.468.0",
+    "nanoid": "^5.0.7",
+    "next": "15.1.8",
+    "next-sanity": "^9.8.0",
+    "node-cron": "^3.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sanity": "^3.65.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.20",
+    "cloudflared": "^0.7.1",
+    "eslint": "^9",
+    "eslint-config-next": "15.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
+  }
+}
