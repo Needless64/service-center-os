@@ -5,17 +5,19 @@ import { ensureSlotExists } from '../sanity/mutations'
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 const BOOKING_LEAD_MINUTES = 30
 // IST offset: UTC+5:30 = 330 minutes
-const IST_OFFSET_MINUTES = 330
-
-/** Current time in IST */
-function nowIST(): Date {
-  const utc = new Date()
-  return new Date(utc.getTime() + IST_OFFSET_MINUTES * 60 * 1000)
+/** Get current date string in IST (YYYY-MM-DD) — reliable on any server timezone */
+function todayIST(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
 }
 
-/** Parse a slot date+time as IST, return as JS Date in UTC */
+/** Get IST datetime as UTC-epoch Date (for cutoff comparisons with date-fns) */
+function nowISTasDate(): Date {
+  const istStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
+  return new Date(istStr)
+}
+
+/** Parse slot date+time as IST */
 function slotDateTimeIST(date: string, time: string): Date {
-  // Treat date+time as IST by appending +05:30
   return new Date(`${date}T${time}:00+05:30`)
 }
 
@@ -57,10 +59,11 @@ export async function getAvailableDays(daysAhead = 7): Promise<DaySlots[]> {
   const branch = await getDefaultBranch()
   if (!branch) return []
 
-  const nowIst = nowIST()
+  const nowIst = nowISTasDate()
   const cutoff = addMinutes(nowIst, BOOKING_LEAD_MINUTES)
-  const todayStr = format(nowIst, 'yyyy-MM-dd')
-  const tomorrowStr = format(addDays(nowIst, 1), 'yyyy-MM-dd')
+  const todayStr = todayIST()
+  const tomorrowStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' })
+    .format(addDays(new Date(), 1))
 
   // Collect candidate working dates (include today if has future slots)
   const workingDates: Date[] = []

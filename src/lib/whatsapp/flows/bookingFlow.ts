@@ -43,9 +43,12 @@ export async function handleServiceTypeSelection(phone: string, serviceTypeId: s
     const customer = await getCustomerByPhone(phone)
     if (customer?.vehicles?.length) {
       await updateSession(phone, { serviceType, state: 'COLLECTING_VEHICLE_NUMBER' })
-      const vehicleButtons = customer.vehicles.slice(0, 3).map((v) => ({ id: `vehicle_${v.vehicleNumber}`, title: v.vehicleNumber }))
-      vehicleButtons.push({ id: 'vehicle_new', title: '+ New Vehicle' })
-      await sendButtons(phone, `*${formatServiceType(serviceType)}* selected.\n\nWhich vehicle?`, vehicleButtons.slice(0, 3))
+        // Max 3 WhatsApp buttons: show up to 2 existing vehicles + always "+ New Vehicle"
+      const vehicleButtons = [
+        ...customer.vehicles.slice(0, 2).map((v) => ({ id: `vehicle_${v.vehicleNumber}`, title: v.vehicleNumber })),
+        { id: 'vehicle_new', title: '+ New Vehicle' },
+      ]
+      await sendButtons(phone, `*${formatServiceType(serviceType)}* selected.\n\nWhich vehicle?`, vehicleButtons)
       return
     }
   }
