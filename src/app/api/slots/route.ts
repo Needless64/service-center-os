@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getNextAvailableSlots } from '@/lib/whatsapp/slotHelper'
+import { getAvailableDays } from '@/lib/whatsapp/slotHelper'
 import { sanityClient } from '@/lib/sanity/client'
 import { format } from 'date-fns'
 
 // GET /api/slots — returns next available slots
 export async function GET() {
-  const slots = await getNextAvailableSlots(5)
-  return NextResponse.json(slots)
+  const days = await getAvailableDays(5)
+  return NextResponse.json(days)
 }
 
 // POST /api/slots — block/unblock a slot
