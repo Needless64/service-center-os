@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function CustomersPage() {
   const customers = await sanityClient.fetch(
-    `*[_type == "customer"] | order(name asc) {
+    `*[_type == "customer"] | order(totalVisits desc, name asc) {
       _id, customerId, name, phoneNumber, totalVisits, lastVisitDate,
       vehicles[]{ vehicleNumber, vehicleModel }
     }`

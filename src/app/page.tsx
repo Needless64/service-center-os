@@ -13,7 +13,7 @@ export default function HomePage() {
             <span className="font-bold text-gray-900">Service Center OS</span>
           </div>
           <Link
-            href="/dashboard"
+            href="/admin"
             className="flex items-center gap-1.5 text-sm font-medium bg-gray-900 text-white px-4 py-2 rounded-xl hover:bg-gray-700 transition-colors"
           >
             Open Dashboard <ArrowRight className="size-3.5" />
@@ -36,7 +36,7 @@ export default function HomePage() {
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
           <Link
-            href="/dashboard"
+            href="/admin"
             className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors shadow-sm"
           >
             Open Dashboard <ArrowRight className="size-4" />
