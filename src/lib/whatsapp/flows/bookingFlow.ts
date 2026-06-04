@@ -43,18 +43,37 @@ export async function handleServiceTypeSelection(phone: string, serviceTypeId: s
     const customer = await getCustomerByPhone(phone)
     if (customer?.vehicles?.length) {
       await updateSession(phone, { serviceType, state: 'COLLECTING_VEHICLE_NUMBER' })
-        // Max 3 WhatsApp buttons: show up to 2 existing vehicles + always "+ New Vehicle"
-      const vehicleButtons = [
-        ...customer.vehicles.slice(0, 2).map((v) => ({ id: `vehicle_${v.vehicleNumber}`, title: v.vehicleNumber })),
-        { id: 'vehicle_new', title: '+ New Vehicle' },
-      ]
-      await sendButtons(phone, `*${formatServiceType(serviceType)}* selected.\n\nWhich vehicle?`, vehicleButtons)
+      await sendButtons(
+        phone,
+        `*${formatServiceType(serviceType)}* selected.\n\nWhich vehicle?`,
+        [
+          { id: 'vehicles_menu', title: '🚗 Previous Vehicles' },
+          { id: 'vehicle_new', title: '➕ New Vehicle' },
+        ]
+      )
       return
     }
   }
 
   await updateSession(phone, { serviceType, state: 'COLLECTING_VEHICLE_NUMBER' })
   await sendText(phone, `*${formatServiceType(serviceType)}* selected.\n\nEnter your *vehicle registration number*:\n_(Example: TS09AB1234)_`)
+}
+
+export async function showPreviousVehiclesMenu(phone: string) {
+  const customer = await getCustomerByPhone(phone)
+  if (!customer?.vehicles?.length) {
+    await updateSession(phone, { state: 'COLLECTING_VEHICLE_NUMBER' })
+    await sendText(phone, `Enter your *vehicle registration number*:\n_(Example: TS09AB1234)_`)
+    return
+  }
+  const rows = customer.vehicles.map((v) => ({
+    id: `vehicle_${v.vehicleNumber}`,
+    title: v.vehicleNumber,
+    description: v.vehicleModel || undefined,
+  }))
+  await sendList(phone, 'Select your vehicle:', 'Choose Vehicle', [
+    { title: 'Your Vehicles', rows },
+  ])
 }
 
 export async function handleVehicleSelection(phone: string, vehicleNumber: string) {

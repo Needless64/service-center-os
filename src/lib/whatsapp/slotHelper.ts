@@ -97,11 +97,14 @@ export async function getAvailableDays(daysAhead = 7): Promise<DaySlots[]> {
 
     // Build readable label with date included
     const dateObj = new Date(`${dateStr}T12:00:00+05:30`)
-    const dateDisplay = format(dateObj, 'EEE d MMM')   // "Thu 4 Jun"
+    // Title shown in list AND sent as user's message — keep aesthetic, ≤24 chars
+    // "Today · Thu 4 June 2026" = 23 chars ✓
+    // "Fri 5 June 2026" = 15 chars ✓
+    const fullDate = format(dateObj, 'd MMMM yyyy')   // "4 June 2026"
     const dayLabel =
-      dateStr === todayStr    ? `Today · ${dateDisplay}` :
-      dateStr === tomorrowStr ? `Tomorrow · ${dateDisplay}` :
-                                 dateDisplay
+      dateStr === todayStr    ? `Today · ${format(dateObj, 'EEE')} ${fullDate}`.slice(0, 24) :
+      dateStr === tomorrowStr ? `Tmr · ${format(dateObj, 'EEE')} ${fullDate}`.slice(0, 24) :
+                                `${format(dateObj, 'EEE')} ${fullDate}`.slice(0, 24)
 
     result.push({ date: dateStr, dayLabel, slots: daySlots })
   }

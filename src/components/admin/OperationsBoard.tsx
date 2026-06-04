@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { format, addDays, subDays } from 'date-fns'
 import { clsx } from 'clsx'
 
@@ -241,6 +241,20 @@ export function OperationsBoard({ bookings: initial, completedRecords, selectedD
   const [date, setDate] = useState(selectedDate)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overLane, setOverLane] = useState<string | null>(null)
+  const dateRef = useRef(selectedDate)
+
+  // Auto-refresh every 30s — picks up new WhatsApp bookings automatically
+  useEffect(() => {
+    dateRef.current = date
+  }, [date])
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const res = await fetch(`/api/bookings?date=${dateRef.current}`)
+      if (res.ok) setBookings(await res.json())
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const dateLabel = date === today ? 'Today'
