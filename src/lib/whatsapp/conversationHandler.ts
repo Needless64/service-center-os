@@ -1,7 +1,7 @@
 import { sendText, sendButtons } from './client'
 import { getSession, resetSession } from './sessionManager'
 import { parseIntent } from './intentParser'
-import { startBooking, handleServiceTypeSelection, handleVehicleSelection, handleBookingTextInput, handleSlotSelection, confirmBooking } from './flows/bookingFlow'
+import { startBooking, handleServiceTypeSelection, handleVehicleSelection, handleBookingTextInput, handleSlotSelection, handleDaySelection, confirmBooking } from './flows/bookingFlow'
 import { handleStatusCheck, handleCancelRequest, handleConfirmCancel, handleBookingSelection, handleCancelBookingSelection } from './flows/statusFlow'
 
 export async function handleIncomingMessage(phone: string, text: string, interactiveId?: string) {
@@ -38,6 +38,7 @@ export async function handleIncomingMessage(phone: string, text: string, interac
 
 async function handleInteractiveReply(phone: string, id: string) {
   if (id.startsWith('svc_')) { await handleServiceTypeSelection(phone, id); return }
+  if (id.startsWith('day_')) { await handleDaySelection(phone, id.replace('day_', '')); return }
   if (id.startsWith('slot_')) { await handleSlotSelection(phone, id); return }
   if (id.startsWith('vehicle_')) { await handleVehicleSelection(phone, id.replace('vehicle_', '')); return }
   if (id.startsWith('status_booking_')) { await handleBookingSelection(phone, id.replace('status_booking_', '')); return }

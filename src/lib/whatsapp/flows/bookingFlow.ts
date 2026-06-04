@@ -1,7 +1,7 @@
 import { sendText, sendList, sendButtons } from '../client'
 import { getSession, updateSession, resetSession } from '../sessionManager'
 import { formatServiceType } from '../intentParser'
-import { getNextAvailableSlots } from '../slotHelper'
+import { getAvailableDays } from '../slotHelper'
 import { getCustomerByPhone, getSlot, getDefaultBranch } from '../../sanity/queries'
 import { createCustomer, createBooking, incrementSlot, addVehicleToCustomer } from '../../sanity/mutations'
 import { format } from 'date-fns'
@@ -97,19 +97,46 @@ export async function handleBookingTextInput(phone: string, text: string) {
 }
 
 async function showSlotSelection(phone: string) {
-  const slots = await getNextAvailableSlots(10, 7)
-  if (slots.length === 0) {
+  const days = await getAvailableDays(7)
+  if (days.length === 0) {
     await sendText(phone, `😔 No slots available in the coming days.\n\nPlease call us directly to book.`)
     await resetSession(phone)
     return
   }
   await updateSession(phone, { state: 'SELECTING_SLOT_DATE' })
-  const rows = slots.map((s) => ({
-    id: `slot_${s.date}_${s.time}_${s.slotId}`,
+
+  // Step 1: show available days (max 10 rows)
+  const rows = days.slice(0, 10).map((d) => ({
+    id: `day_${d.date}`,
+    title: d.dayLabel.length > 24 ? d.dayLabel.slice(0, 24) : d.dayLabel,
+    description: `${d.slots.length} slot${d.slots.length !== 1 ? 's' : ''} available`,
+  }))
+
+  await sendList(phone, 'Select a date for your appointment:', 'Choose Date', [
+    { title: 'Available Days', rows },
+  ])
+}
+
+export async function handleDaySelection(phone: string, dateStr: string) {
+  const days = await getAvailableDays(7)
+  const day = days.find((d) => d.date === dateStr)
+
+  if (!day || day.slots.length === 0) {
+    await sendText(phone, `No slots available for that day. Please choose another.`)
+    await showSlotSelection(phone)
+    return
+  }
+
+  // Step 2: show time slots for selected day (max 10)
+  const rows = day.slots.slice(0, 10).map((s) => ({
+    id: `slot_${dateStr}_${s.time}_${s.slotId}`,
     title: s.display,
     description: `${s.spotsLeft} spot${s.spotsLeft !== 1 ? 's' : ''} left`,
   }))
-  await sendList(phone, 'Pick your appointment slot:', 'View Slots', [{ title: 'Available Slots', rows }])
+
+  await sendList(phone, `*${day.dayLabel}*\n\nChoose your time slot:`, 'Pick Time', [
+    { title: day.dayLabel.length > 24 ? day.dayLabel.slice(0, 24) : day.dayLabel, rows },
+  ])
 }
 
 export async function handleSlotSelection(phone: string, slotPayload: string) {
