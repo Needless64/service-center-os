@@ -13,6 +13,7 @@
     "@sanity/client": "^6.21.0",
     "@sanity/image-url": "^1.0.2",
     "@sanity/vision": "^3.65.0",
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "googleapis": "^144.0.0",
@@ -24,6 +25,7 @@
     "node-cron": "^3.0.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "resend": "^6.12.4",
     "sanity": "^3.65.0"
   },
   "devDependencies": {

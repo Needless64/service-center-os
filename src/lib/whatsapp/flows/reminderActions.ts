@@ -103,7 +103,6 @@ async function openReschedulePicker(phone: string, bookingDocId: string, booking
   const rows = days.slice(0, 10).map((d) => ({
     id: `reschedule_day_${d.date}`,
     title: d.dayLabel.length > 24 ? d.dayLabel.slice(0, 24) : d.dayLabel,
-    description: `${d.slots.length} slot${d.slots.length !== 1 ? 's' : ''} available`,
   }))
 
   await sendList(phone, 'Pick a new date for your appointment:', 'New Date', [

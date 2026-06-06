@@ -5,6 +5,7 @@ import { slotSchema } from '../schemas/slot'
 import { serviceRecordSchema } from '../schemas/serviceRecord'
 import { staffSchema } from '../schemas/staff'
 import { branchSchema } from '../schemas/branch'
+import { adminUserSchema } from '../schemas/adminUser'
 
 export const schemaTypes = [
   whatsappSessionSchema,
@@ -14,4 +15,5 @@ export const schemaTypes = [
   bookingSchema,
   slotSchema,
   serviceRecordSchema,
+  adminUserSchema,
 ]

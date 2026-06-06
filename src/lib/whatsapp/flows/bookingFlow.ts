@@ -15,20 +15,15 @@ const SERVICE_OPTIONS = [
 ]
 
 export async function startBooking(phone: string) {
-  const [customer, branch] = await Promise.all([getCustomerByPhone(phone), getDefaultBranch()])
-  const baseGreeting = branch?.whatsappGreeting ?? 'Welcome to our Service Center!'
-
+  const customer = await getCustomerByPhone(phone)
   if (customer) {
     await updateSession(phone, { state: 'SELECTING_SERVICE_TYPE', existingCustomerId: customer._id, isReturningCustomer: true, customerName: customer.name })
-    const vehicleCount = customer.vehicles?.length ?? 0
-    const greeting = vehicleCount > 0
-      ? `Welcome back, *${customer.name}*! 👋\n\nLast vehicle: *${customer.vehicles[0].vehicleNumber}* (${customer.vehicles[0].vehicleModel || ''})\n\nLet's get your vehicle booked.`
-      : `Welcome back, *${customer.name}*! 👋\n\n${baseGreeting}`
-    await sendText(phone, greeting)
   } else {
     await updateSession(phone, { state: 'SELECTING_SERVICE_TYPE', isReturningCustomer: false })
-    await sendText(phone, `${baseGreeting} 🚗\n\nLet's get your vehicle booked in 2 minutes.`)
   }
+  // No text greeting — drop straight to the service-type picker. The
+  // first-time onboarding message in the welcome menu already
+  // explains the workshop, so repeating it here is noise.
 
   await sendList(phone, 'Select the type of service you need:', 'Select Service', [
     { title: 'Service Types', rows: SERVICE_OPTIONS.map((s) => ({ id: `svc_${s.id}`, title: s.title })) },
@@ -126,11 +121,12 @@ async function showSlotSelection(phone: string) {
   }
   await updateSession(phone, { state: 'SELECTING_SLOT_DATE' })
 
-  // Step 1: show available days (max 10 rows)
+  // Step 1: show available days (max 10 rows). Just the day label —
+  // no slot count (the count was misleading when a day had 80 slots
+  // but the customer was going to see a sparse time picker anyway).
   const rows = days.slice(0, 10).map((d) => ({
     id: `day_${d.date}`,
     title: d.dayLabel.length > 24 ? d.dayLabel.slice(0, 24) : d.dayLabel,
-    description: `${d.slots.length} slot${d.slots.length !== 1 ? 's' : ''} available`,
   }))
 
   await sendList(phone, 'Select a date for your appointment:', 'Choose Date', [

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getUpcomingBookingsForReminders } from '@/lib/sanity/queries'
 import { markReminderSent } from '@/lib/sanity/mutations'
 import { sendReminder } from '@/lib/whatsapp/flows/reminderFlow'
+import { safeEqual, normalizeE164 } from '@/lib/security'
 import { format, differenceInMinutes } from 'date-fns'
 
 // Called by the GitHub Actions workflow every 5 minutes.
@@ -15,8 +16,11 @@ import { format, differenceInMinutes } from 'date-fns'
 // where ANY reminderSent* flag is true, so a ticket is picked up at
 // most once.
 export async function GET(req: NextRequest) {
-  const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret')
-  if (secret !== process.env.CRON_SECRET) {
+  // Auth via header only — accepting the secret in the URL query
+  // string would log it in Vercel's request logs and any proxy/CDN
+  // access log. Constant-time compare to deny a timing oracle.
+  const secret = req.headers.get('x-cron-secret')
+  if (!safeEqual(secret, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -27,7 +31,9 @@ export async function GET(req: NextRequest) {
   const results: { bookingId: string; minutesUntil: number; sent: boolean }[] = []
 
   for (const booking of bookings) {
-    const phone = (booking.customer as unknown as { phoneNumber?: string })?.phoneNumber
+    const rawPhone = (booking.customer as unknown as { phoneNumber?: string })?.phoneNumber
+    // Reject malformed numbers before they reach the WhatsApp API.
+    const phone = normalizeE164(rawPhone)
     if (!phone) continue
 
     const minutesUntil = differenceInMinutes(
