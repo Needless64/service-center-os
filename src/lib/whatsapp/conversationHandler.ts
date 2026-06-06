@@ -1,7 +1,7 @@
 import { sendText, sendButtons } from './client'
 import { getSession, resetSession, wasOnboarded, updateSession } from './sessionManager'
 import { parseIntent } from './intentParser'
-import { startBooking, handleServiceTypeSelection, handleVehicleSelection, showPreviousVehiclesMenu, handleBookingTextInput, handleSlotSelection, handleDaySelection, confirmBooking } from './flows/bookingFlow'
+import { startBooking, handleServiceTypeSelection, handleVehicleSelection, showPreviousVehiclesMenu, handleBookingTextInput, handleSlotSelection, handleDaySelection, handleHourSelection, confirmBooking } from './flows/bookingFlow'
 import { handleStatusCheck, handleCancelRequest, handleConfirmCancel, handleBookingSelection, handleCancelBookingSelection } from './flows/statusFlow'
 import { handleRemindConfirm, handleRemindReschedule, startReschedule, handleRescheduleDaySelection, handleRescheduleSlotSelection } from './flows/reminderActions'
 
@@ -73,6 +73,7 @@ async function handleInteractiveReply(phone: string, id: string) {
   try {
     if (id.startsWith('svc_')) { await handleServiceTypeSelection(phone, id); return }
     if (id.startsWith('day_')) { await handleDaySelection(phone, id.replace('day_', '')); return }
+    if (id.startsWith('hour_')) { await handleHourSelection(phone, id); return }
     if (id.startsWith('slot_')) { await handleSlotSelection(phone, id); return }
     if (id === 'vehicles_menu') { await showPreviousVehiclesMenu(phone); return }
     if (id.startsWith('vehicle_')) { await handleVehicleSelection(phone, id.replace('vehicle_', '')); return }
@@ -150,6 +151,7 @@ async function sendWelcome(phone: string) {
     // chat message at the bottom of the conversation.
     await sendText(
       phone,
+      // Order: Gujarati first, then English (per user request).
       `🙏 *પ્રિય બજાજ થ્રી વ્હીલર પરિવાર,*\n` +
       `હવે સર્વિસ માટે વહેલી સવારે લાઇનમાં ઊભા રહેવાની કે લાંબા સમય સુધી રાહ જોવાની જરૂર નથી.\n` +
       `📅 તમારી ગાડીની સર્વિસ બુક કરવા માટે આ નંબર પર માત્ર "Hi" મોકલો +916358201573 અને તમારી અનુકૂળ તારીખ અને સમય પસંદ કરો.\n` +

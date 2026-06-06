@@ -144,14 +144,78 @@ export async function handleDaySelection(phone: string, dateStr: string) {
     return
   }
 
-  // Step 2: show time slots for selected day (max 10)
-  const rows = day.slots.slice(0, 10).map((s) => ({
+  // Group slots by hour (HH:00 → HH:59). One row per hour. The
+  // hourly bucket row is only listed if the hour has at least one
+  // bookable slot. The user picks an hour first, then a 6-min slot
+  // within that hour — keeps the list under WhatsApp's 10-row cap.
+  const byHour = new Map<string, { count: number; display: string }>()
+  for (const s of day.slots) {
+    const hour = s.time.slice(0, 2) // "09" from "09:00"
+    const display = format(new Date(`2000-01-01T${hour}:00`), 'h a') // "9 AM"
+    const existing = byHour.get(hour)
+    if (existing) existing.count++
+    else byHour.set(hour, { count: 1, display })
+  }
+
+  const hourRows = Array.from(byHour.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 10)
+    .map(([hour, info]) => ({
+      id: `hour_${dateStr}_${hour}`,
+      title: info.display,
+      description: `${info.count} slot${info.count !== 1 ? 's' : ''} available`,
+    }))
+
+  if (hourRows.length === 0) {
+    await sendText(phone, `No slots available for that day. Please choose another.`)
+    await showSlotSelection(phone)
+    return
+  }
+
+  await updateSession(phone, { state: 'SELECTING_SLOT_HOUR' })
+  await sendList(phone, `*${day.dayLabel}*\n\nPick an hour:`, 'Pick Hour', [
+    { title: day.dayLabel.length > 24 ? day.dayLabel.slice(0, 24) : day.dayLabel, rows: hourRows },
+  ])
+}
+
+// Dispatched when the user picks an hour bucket. Shows the 6-min
+// slots for that hour.
+export async function handleHourSelection(phone: string, hourPayload: string) {
+  // hourPayload = "hour_2026-06-06_09"
+  const m = hourPayload.match(/^hour_(\d{4}-\d{2}-\d{2})_(\d{2})$/)
+  if (!m) {
+    await sendText(phone, `Sorry, that selection is invalid. Try again.`)
+    return
+  }
+  const [, dateStr, hour] = m
+
+  const days = await getAvailableDays(7)
+  const day = days.find((d) => d.date === dateStr)
+  if (!day) {
+    await sendText(phone, `Sorry, day not found. Please choose another.`)
+    await showSlotSelection(phone)
+    return
+  }
+
+  const slotsInHour = day.slots
+    .filter((s) => s.time.slice(0, 2) === hour)
+    .slice(0, 10)
+
+  if (slotsInHour.length === 0) {
+    await sendText(phone, `That hour is now full. Please pick another.`)
+    await handleDaySelection(phone, dateStr)
+    return
+  }
+
+  const rows = slotsInHour.map((s) => ({
     id: `slot_${dateStr}_${s.time}_${s.slotId}`,
     title: s.display,
     description: `${s.spotsLeft} spot${s.spotsLeft !== 1 ? 's' : ''} left`,
   }))
 
-  await sendList(phone, `*${day.dayLabel}*\n\nChoose your time slot:`, 'Pick Time', [
+  await updateSession(phone, { state: 'SELECTING_SLOT_TIME' })
+  const hourLabel = format(new Date(`2000-01-01T${hour}:00`), 'h a')
+  await sendList(phone, `*${day.dayLabel} · ${hourLabel}*\n\nChoose your time:`, 'Pick Time', [
     { title: day.dayLabel.length > 24 ? day.dayLabel.slice(0, 24) : day.dayLabel, rows },
   ])
 }
