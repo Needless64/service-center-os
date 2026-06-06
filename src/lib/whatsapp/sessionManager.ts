@@ -29,6 +29,7 @@ export type SessionData = {
   availableDates?: string[]
   activeBookingId?: string
   activeBookingDocId?: string
+  onboardedAt?: number
   lastActivity: number
 }
 
@@ -90,4 +91,13 @@ export async function updateSession(phone: string, updates: Partial<SessionData>
 
 export async function resetSession(phone: string): Promise<void> {
   await deleteSession(phone)
+}
+
+// True if we've already shown the first-time onboarding message to
+// this phone. The flag is stored in the session so it survives across
+// messages but gets reset whenever the user explicitly asks for help
+// (resetSession clears the whole doc).
+export async function wasOnboarded(phone: string): Promise<boolean> {
+  const existing = await fetchSession(phone)
+  return Boolean(existing?.onboardedAt)
 }

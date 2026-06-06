@@ -1,5 +1,5 @@
 import { sendText, sendButtons } from './client'
-import { getSession, resetSession } from './sessionManager'
+import { getSession, resetSession, wasOnboarded, updateSession } from './sessionManager'
 import { parseIntent } from './intentParser'
 import { startBooking, handleServiceTypeSelection, handleVehicleSelection, showPreviousVehiclesMenu, handleBookingTextInput, handleSlotSelection, handleDaySelection, confirmBooking } from './flows/bookingFlow'
 import { handleStatusCheck, handleCancelRequest, handleConfirmCancel, handleBookingSelection, handleCancelBookingSelection } from './flows/statusFlow'
@@ -131,6 +131,28 @@ async function sendWelcome(phone: string) {
     `• Say *STATUS* — check your active booking\n` +
     `• Say *CANCEL* or *RESCHEDULE* — manage your booking\n\n` +
     `Or tap a button below:`
+
+  // First-time users get a pre-written intro explaining what the bot
+  // does and how to book. Sent exactly once per phone; the session flag
+  // `onboardedAt` survives across messages and is cleared only by
+  // resetSession (which the user can trigger by replying to a
+  // data-entry prompt with a control keyword).
+  const alreadyOnboarded = await wasOnboarded(phone)
+  if (!alreadyOnboarded) {
+    await sendText(
+      phone,
+      `🙏 *પ્રિય બજાજ થ્રી વ્હીલર પરિવાર,*\n\n` +
+      `હવે સર્વિસ માટે વહેલી સવારે લાઇનમાં ઊભા રહેવાની કે લાંબા સમય સુધી રાહ જોવાની જરૂર નથી.\n\n` +
+      `📅 તમારી ગાડીની સર્વિસ બુક કરવા માટે આ નંબર પર માત્ર "Hi" મોકલો +916358201573 અને તમારી અનુકૂળ તારીખ અને સમય પસંદ કરો.\n\n` +
+      `– શર્મા બજાજ સર્વિસ ટીમ\n\n` +
+      `---\n\n` +
+      `Dear Bajaj Three-Wheeler Vehicle Owners,\n\n` +
+      `Skip the early morning service queue and long waiting times.\n\n` +
+      `📅 Book your vehicle service appointment easily on WhatsApp. Just send "Hi" to this number +916358201573 and choose your preferred service date.\n\n` +
+      `– Sharma Bajaj Service Team`
+    )
+    await updateSession(phone, { onboardedAt: Date.now() })
+  }
 
   await sendButtons(phone, body, [
     { id: 'action_book', title: '📅 Book Service' },
