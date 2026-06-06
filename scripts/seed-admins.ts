@@ -20,6 +20,7 @@ const ADMINS: { email: string; name: string }[] = [
   { email: 'sharmaautobaroda@gmail.com', name: 'Sharma Auto Baroda' },
   { email: 'lingamaditya3669@gmail.com', name: 'Lingam Aditya' },
   { email: 'yashasvi@sharmaautomotive.com', name: 'Yashasvi Sharma Automotive' },
+  { email: 'yashasvipaliwal98@gmail.com', name: 'Yashasvi Paliwal' },
 ]
 
 async function main() {
