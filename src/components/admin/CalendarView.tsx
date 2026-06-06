@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, getDay, addMonths, subMonths } from 'date-fns'
 import { clsx } from 'clsx'
+import { adminFetch } from '@/lib/adminFetch'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function BookingRow({ booking, onChange }: { booking: Booking; onChange: (id: st
   async function handleChange(newStatus: string) {
     setSaving(true)
     setStatus(newStatus)
-    await fetch('/api/admin/bookings', {
+    await adminFetch('/api/admin/bookings', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bookingDocId: booking._id, status: newStatus }),
@@ -137,7 +138,7 @@ function DayCapacityOverride({ date, slots, onApplied }: {
 
   // Load branch defaults once
   useEffect(() => {
-    fetch('/api/admin/branch').then((r) => r.json()).then((b: BranchInfo) => {
+    adminFetch('/api/admin/branch').then((r) => r.json()).then((b: BranchInfo) => {
       setBranch(b)
       setDuration(String(b.slotDurationMinutes ?? 60))
       setStartTime(b.workingHours?.start ?? '09:00')
@@ -155,7 +156,7 @@ function DayCapacityOverride({ date, slots, onApplied }: {
     const dur = parseInt(duration)
     if (isNaN(cap) || cap < 1 || isNaN(dur) || dur < 15) return
     setSaving(true)
-    await fetch('/api/admin/slots', {
+    await adminFetch('/api/admin/slots', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, capacity: cap, slotDurationMinutes: dur, startTime, endTime }),
@@ -221,7 +222,7 @@ function SlotCapacityRow({ slot, onUpdate }: { slot: SlotDoc; onUpdate: (cap: nu
     if (newCap < slot.currentBookings || newCap < 1) return
     setSaving(true)
     setCap(newCap)
-    await fetch('/api/admin/slots', {
+    await adminFetch('/api/admin/slots', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slotId: slot._id, capacity: newCap }),
@@ -256,6 +257,126 @@ function SlotCapacityRow({ slot, onUpdate }: { slot: SlotDoc; onUpdate: (cap: nu
           disabled={saving}
           className="w-6 h-6 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 flex items-center justify-center font-bold"
         >+</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Hour-bucket capacity row ───────────────────────────────────────────────
+
+function HourBucketRow({
+  hour,
+  slotsInHour,
+  onUpdate,
+}: {
+  hour: string                       // "09", "10", ...
+  slotsInHour: SlotDoc[]
+  onUpdate: (newCap: number) => void
+}) {
+  const [cap, setCap] = useState(slotsInHour[0]?.capacity ?? 1)
+  const [saving, setSaving] = useState(false)
+
+  // Re-sync if the slots change (e.g. onUpdate from parent re-fetches)
+  useEffect(() => {
+    setCap(slotsInHour[0]?.capacity ?? 1)
+  }, [slotsInHour])
+
+  const totalBooked = slotsInHour.reduce((s, x) => s + (x.currentBookings ?? 0), 0)
+  const totalCapacity = cap * Math.max(slotsInHour.length, 1)
+  const totalFree = totalCapacity - totalBooked
+  const isFull = totalFree <= 0
+  const minCapForHour = Math.max(...(slotsInHour.length ? slotsInHour.map((s) => s.currentBookings) : [0]), 1)
+
+  async function update(newCap: number) {
+    if (newCap < minCapForHour || newCap < 1) return
+    setSaving(true)
+    setCap(newCap)
+    // Update every slot in the hour concurrently. We don't roll back
+    // partial failures (rare; admin can retry).
+    await Promise.all(
+      slotsInHour.map((slot) =>
+        adminFetch('/api/admin/slots', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slotId: slot._id, capacity: newCap }),
+        })
+      )
+    )
+    onUpdate(newCap)
+    setSaving(false)
+  }
+
+  return (
+    <div className={clsx(
+      'flex items-center justify-between rounded-lg px-3 py-2 text-xs gap-2',
+      isFull ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'
+    )}>
+      <div className="flex items-center gap-1 min-w-0">
+        <span className="font-semibold text-gray-900 shrink-0">
+          {format(new Date(`2000-01-01T${hour}:00`), 'h a')}
+        </span>
+        <span className="text-gray-400 shrink-0">{totalBooked}/</span>
+        <span className={clsx('font-bold', isFull ? 'text-red-600' : 'text-gray-700')}>{totalCapacity}</span>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <span className={clsx('text-xs font-medium mr-1', isFull ? 'text-red-500' : 'text-green-600')}>
+          {isFull ? 'FULL' : `${totalFree} free`}
+        </span>
+        <button
+          onClick={() => update(cap - 1)}
+          disabled={saving || cap <= minCapForHour}
+          className="w-6 h-6 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center font-bold"
+        >−</button>
+        <button
+          onClick={() => update(cap + 1)}
+          disabled={saving}
+          className="w-6 h-6 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center font-bold"
+        >+</button>
+      </div>
+    </div>
+  )
+}
+
+function HourBucketCapacity({
+  date,
+  slots,
+  onUpdate,
+}: {
+  date: string
+  slots: SlotDoc[]
+  onUpdate: () => void | Promise<void>
+}) {
+  // Group slots by hour
+  const byHour = new Map<string, SlotDoc[]>()
+  for (const s of slots) {
+    const hour = s.time.slice(0, 2) // "09" from "09:06"
+    const arr = byHour.get(hour)
+    if (arr) arr.push(s)
+    else byHour.set(hour, [s])
+  }
+  const rows = Array.from(byHour.entries()).sort(([a], [b]) => a.localeCompare(b))
+
+  if (slots.length === 0) {
+    return (
+      <div className="px-4 py-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Hour Buckets</p>
+        <p className="text-xs text-gray-400">No slots for this date</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 py-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Hour Buckets</p>
+      <div className="space-y-1.5">
+        {rows.map(([hour, slotsInHour]) => (
+          <HourBucketRow
+            key={hour}
+            hour={hour}
+            slotsInHour={slotsInHour}
+            onUpdate={onUpdate}
+          />
+        ))}
       </div>
     </div>
   )
@@ -442,26 +563,16 @@ export function CalendarView() {
               }}
             />
 
-            {/* Individual slot controls */}
-            <div className="px-4 py-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Individual Slots</p>
-              {daySlots.length === 0 ? (
-                <p className="text-xs text-gray-400">No slots for this date</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {daySlots.map((slot) => (
-                    <SlotCapacityRow
-                      key={slot._id}
-                      slot={slot}
-                      onUpdate={(cap) => {
-                        setDaySlots((prev) => prev.map((s) => s._id === slot._id ? { ...s, capacity: cap } : s))
-                        loadMonth(month)
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Hour buckets — aggregate individual 6-min slots into one row per hour */}
+            <HourBucketCapacity
+              date={selectedDate}
+              slots={daySlots}
+              onUpdate={async () => {
+                const res = await fetch(`/api/admin/slots?date=${selectedDate}`)
+                setDaySlots(await res.json())
+                loadMonth(month)
+              }}
+            />
           </div>
         )}
       </div>
