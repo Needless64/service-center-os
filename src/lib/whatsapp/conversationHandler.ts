@@ -132,33 +132,35 @@ async function sendWelcome(phone: string) {
     `• Say *CANCEL* or *RESCHEDULE* — manage your booking\n\n` +
     `Or tap a button below:`
 
-  // First-time users get a pre-written intro explaining what the bot
-  // does and how to book. Sent exactly once per phone; the session flag
-  // `onboardedAt` survives across messages and is cleared only by
-  // resetSession (which the user can trigger by replying to a
-  // data-entry prompt with a control keyword).
-  const alreadyOnboarded = await wasOnboarded(phone)
-  if (!alreadyOnboarded) {
-    await sendText(
-      phone,
-      `🙏 *પ્રિય બજાજ થ્રી વ્હીલર પરિવાર,*\n\n` +
-      `હવે સર્વિસ માટે વહેલી સવારે લાઇનમાં ઊભા રહેવાની કે લાંબા સમય સુધી રાહ જોવાની જરૂર નથી.\n\n` +
-      `📅 તમારી ગાડીની સર્વિસ બુક કરવા માટે આ નંબર પર માત્ર "Hi" મોકલો +916358201573 અને તમારી અનુકૂળ તારીખ અને સમય પસંદ કરો.\n\n` +
-      `– શર્મા બજાજ સર્વિસ ટીમ\n\n` +
-      `---\n\n` +
-      `Dear Bajaj Three-Wheeler Vehicle Owners,\n\n` +
-      `Skip the early morning service queue and long waiting times.\n\n` +
-      `📅 Book your vehicle service appointment easily on WhatsApp. Just send "Hi" to this number +916358201573 and choose your preferred service date.\n\n` +
-      `– Sharma Bajaj Service Team`
-    )
-    await updateSession(phone, { onboardedAt: Date.now() })
-  }
-
+  // Send the menu FIRST (older bubble, scrolled up), then the
+  // onboarding message LAST (newest bubble, bottom of the chat).
+  // When the user opens the conversation, the bottom of the chat is
+  // what they see first — so the onboarding message is the
+  // first-impression greeting. Returning users skip the onboarding
+  // text entirely (alreadyOnboarded flag in the session).
   await sendButtons(phone, body, [
     { id: 'action_book', title: '📅 Book Service' },
     { id: 'action_status', title: '📊 My Status' },
     { id: 'action_manage', title: '✏️ Manage Booking' },
   ])
+
+  const alreadyOnboarded = await wasOnboarded(phone)
+  if (!alreadyOnboarded) {
+    // Combined bilingual greeting in a single bubble so it lands as one
+    // chat message at the bottom of the conversation.
+    await sendText(
+      phone,
+      `🙏 *પ્રિય બજાજ થ્રી વ્હીલર પરિવાર,*\n` +
+      `હવે સર્વિસ માટે વહેલી સવારે લાઇનમાં ઊભા રહેવાની કે લાંબા સમય સુધી રાહ જોવાની જરૂર નથી.\n` +
+      `📅 તમારી ગાડીની સર્વિસ બુક કરવા માટે આ નંબર પર માત્ર "Hi" મોકલો +916358201573 અને તમારી અનુકૂળ તારીખ અને સમય પસંદ કરો.\n` +
+      `– શર્મા બજાજ સર્વિસ ટીમ\n\n` +
+      `Dear Bajaj Three-Wheeler Vehicle Owners,\n` +
+      `Skip the early morning service queue and long waiting times.\n` +
+      `📅 Book your vehicle service appointment easily on WhatsApp. Just send "Hi" to this number +916358201573 and choose your preferred service date.\n` +
+      `– Sharma Bajaj Service Team`
+    )
+    await updateSession(phone, { onboardedAt: Date.now() })
+  }
 }
 
 // "Manage Booking" entry point. Shows a 2-button submenu asking whether
