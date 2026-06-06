@@ -1,42 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * Gate every /api/admin/* route behind a logged-in admin session.
+ * Admin auth gate.
  *
- * Auth model: the admin_session cookie holds the admin's email (set
- * by /api/admin/auth/verify-otp after a successful email+password
- * + OTP login). We accept any cookie value here; the admin API
- * handlers themselves do not need the email — they trust the cookie
- * presence. For a stronger gate, also look up adminUser by email
- * here; the trade-off is one Sanity roundtrip per admin call.
+ * Two paths into the admin area:
+ *   1. /api/admin/* — server endpoints. Auth: admin_session cookie.
+ *      Login/verify-otp/logout are allowlisted. Failure -> 401 JSON.
+ *   2. /admin/* (page routes) — redirects to /admin/login?next=...
+ *      when the cookie is missing or invalid. The login page is
+ *      allowlisted so the form itself renders.
  *
- * Login + verify-otp + logout are allowlisted (no auth required).
- *
- * Fail-closed: if the cookie is missing or empty, returns 401.
+ * The /admin/studio route is allowlisted (Sanity Studio has its
+ * own session cookie + auth via the GROQ token).
  */
-const ALLOWLIST = [
+const ALLOWLIST_API = [
   '/api/admin/auth/login',
   '/api/admin/auth/verify-otp',
   '/api/admin/auth/logout',
 ]
 
+const ALLOWLIST_PAGES = [
+  '/admin/login',
+  '/admin/studio',
+]
+
 export function middleware(req: NextRequest) {
-  if (!req.nextUrl.pathname.startsWith('/api/admin/')) {
+  const { pathname } = req.nextUrl
+
+  if (pathname.startsWith('/api/admin/')) {
+    if (ALLOWLIST_API.some((p) => pathname === p)) {
+      return NextResponse.next()
+    }
+    const session = req.cookies.get('admin_session')?.value
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
     return NextResponse.next()
   }
 
-  if (ALLOWLIST.some((p) => req.nextUrl.pathname === p)) {
+  if (pathname.startsWith('/admin/')) {
+    if (ALLOWLIST_PAGES.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+      return NextResponse.next()
+    }
+    const session = req.cookies.get('admin_session')?.value
+    if (!session) {
+      const next = encodeURIComponent(pathname + req.nextUrl.search)
+      const url = req.nextUrl.clone()
+      url.pathname = '/admin/login'
+      url.search = `?next=${next}`
+      return NextResponse.redirect(url)
+    }
     return NextResponse.next()
-  }
-
-  const session = req.cookies.get('admin_session')?.value
-  if (!session) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/api/admin/:path*'],
+  matcher: ['/api/admin/:path*', '/admin/:path*'],
 }

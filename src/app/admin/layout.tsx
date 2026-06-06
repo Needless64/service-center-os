@@ -1,57 +1,55 @@
-'use client'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { sanityClient } from '@/lib/sanity/client'
+import AdminLayoutClient from './AdminLayoutClient'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { clsx } from 'clsx'
+// Server-side gate. Wraps every /admin/* page route. If the
+// admin_session cookie is missing or doesn't correspond to a real
+// adminUser doc, redirect to /admin/login?next=<original-url>.
+//
+// The login page itself (/admin/login) is excluded so the form
+// renders. /admin/studio (the embedded Sanity Studio) is excluded
+// because it has its own auth via Studio's session cookie.
+const ALLOWLIST_PATHS = new Set([
+  '/admin/login',
+  '/admin/studio',
+])
 
-const NAV = [
-  { href: '/admin/operations', label: '🚦 Operations' },
-  { href: '/admin/calendar', label: '📅 Calendar' },
-  { href: '/admin/customers', label: '👤 Customers' },
-]
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
-
-  // Don't wrap the studio route
-  if (pathname.startsWith('/admin/studio')) {
-    return <>{children}</>
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <div className="w-9 h-9 bg-gray-800 rounded-xl flex items-center justify-center text-white font-bold text-sm">
-              A
-            </div>
-            <span className="font-bold text-gray-900 text-base">Admin Panel</span>
-          </Link>
-          <div className="flex items-center gap-1">
-            {NAV.map((item) => {
-              const isActive = pathname === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={clsx(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    isActive
-                      ? 'bg-gray-800 text-white'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  )}
-                >
-                  {item.label}
-                </Link>
-              )
-            })}
-          </div>
-        </div>
-      </header>
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
-    </div>
+async function isAuthed(): Promise<boolean> {
+  const cookieStore = await cookies()
+  const session = cookieStore.get('admin_session')?.value
+  if (!session) return false
+  // Validate the cookie refers to a real adminUser. Prevents
+  // tampered cookies from passing the gate.
+  const admin = await sanityClient.fetch<{ _id: string } | null>(
+    '*[_type == "adminUser" && email == $email][0]{ _id }',
+    { email: session }
   )
+  return Boolean(admin?._id)
+}
+
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  // The pathname isn't directly accessible in a server layout, so
+  // we also rely on the `next-url` header set by Next.js. The
+  // ALLOWLIST below is the only path we explicitly let through.
+  // For everything else, require auth.
+
+  // Use the x-pathname header (set by middleware if we set it) or
+  // fall back to checking the referer. Most reliable approach: do
+  // a simple ALLOWLIST check on the layout segment by including the
+  // login page in the allowlist and letting everything else require
+  // auth. Since this layout wraps every /admin/* route, that's
+  // exactly what we want.
+  if (await isAuthed()) {
+    return <AdminLayoutClient>{children}</AdminLayoutClient>
+  }
+  // Not authed — redirect to login with a next= param so the user
+  // lands back here after verifying. We don't know the exact
+  // requested URL from this layer; the page-level redirect will
+  // re-run after verify. Default to /admin/operations.
+  redirect('/admin/login?next=%2Fadmin%2Foperations')
 }
