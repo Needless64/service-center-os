@@ -98,7 +98,7 @@ export async function getAllActiveBookingsForCustomer(customerId: string): Promi
   return sanityClient.fetch(allActiveBookingsForCustomerQuery, { customerId })
 }
 
-const upcomingBookingsForRemindersQuery = defineQuery(`*[_type == "booking" && status == "booked" && scheduledDate >= $today]{
+const upcomingBookingsForRemindersQuery = defineQuery(`*[_type == "booking" && status == "booked" && scheduledDate >= $today && reminderSent24h != true && reminderSent3h != true && reminderSent30m != true]{
   ...,
   customer->{ _id, name, phoneNumber }
 }`)

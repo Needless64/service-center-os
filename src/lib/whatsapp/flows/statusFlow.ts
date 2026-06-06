@@ -12,15 +12,14 @@ function minutesUntilAppointment(scheduledDate: string, scheduledTime: string): 
   return differenceInMinutes(appointmentDateTime, new Date())
 }
 
-// Send a "you can't do this online, please call us" reply. If the agency
-// phone env var is set, attach a tap-to-call button; otherwise fall back
-// to text-only so the customer still knows how to reach a human.
+// Send a "you can't do this online, please call us" reply. Includes the
+// agency phone number in the body so the customer can long-press to dial.
+// (The Cloud API v21.0 doesn't support tap-to-call buttons on interactive
+// messages, so we put the number in the text instead.)
 async function sendLockErrorWithCall(phone: string, message: string) {
   const phoneNumber = getAgencyPhone()
   if (phoneNumber) {
-    await sendButtons(phone, message, [
-      { type: 'phone_number', phoneNumber, title: '📞 Call Workshop' },
-    ])
+    await sendText(phone, `${message}\n\n📞 Call us: ${phoneNumber}`)
   } else {
     await sendText(phone, message)
   }

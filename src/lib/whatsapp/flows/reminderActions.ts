@@ -12,15 +12,14 @@ function minutesUntilAppointment(scheduledDate: string, scheduledTime: string): 
   return differenceInMinutes(appointmentDateTime, new Date())
 }
 
-// "Customer can't proceed online — please call us" reply. Mirrors the
-// helper in statusFlow.ts; kept local so this file is self-contained for
-// its own lock-error replies (the 30m reminder + the confirmed-flag path).
+// "Customer can't proceed online — please call us" reply. Includes the
+// agency phone number in the body so the customer can long-press to dial.
+// (The Cloud API v21.0 doesn't support tap-to-call buttons on interactive
+// messages, so we put the number in the text instead.)
 async function sendLockErrorWithCall(phone: string, message: string) {
   const phoneNumber = getAgencyPhone()
   if (phoneNumber) {
-    await sendButtons(phone, message, [
-      { type: 'phone_number', phoneNumber, title: '📞 Call Workshop' },
-    ])
+    await sendText(phone, `${message}\n\n📞 Call us: ${phoneNumber}`)
   } else {
     await sendText(phone, message)
   }

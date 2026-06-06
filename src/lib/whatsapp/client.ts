@@ -159,12 +159,12 @@ export async function sendList(
 
 export type ReplyButton = { id: string; title: string }
 
-// Mixed union: quick-reply buttons carry an `id` (handled by our webhook),
-// phone-number buttons carry a `phoneNumber` (open the user's native dialer
-// pre-filled with that number on tap — no webhook roundtrip).
-export type InteractiveButton =
-  | { id: string; title: string }
-  | { type: 'phone_number'; phoneNumber: string; title: string }
+// Only quick-reply buttons are supported in v21.0 button messages.
+// `cta_url` with `tel:` schemes was rejected at runtime. The phone-number
+// CTA path is not exposed by the Cloud API for button messages, so we
+// encode the workshop phone as a plain text line in the body where the
+// customer can long-press to call.
+export type InteractiveButton = { id: string; title: string }
 
 export async function sendButtons(to: string, body: string, buttons: InteractiveButton[]) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
@@ -175,11 +175,7 @@ export async function sendButtons(to: string, body: string, buttons: Interactive
       type: 'button',
       body: { text: body },
       action: {
-        buttons: buttons.map((b) =>
-          'phoneNumber' in b
-            ? { type: 'phone_number', phone_number: b.phoneNumber, text: b.title }
-            : { type: 'reply', reply: { id: b.id, title: b.title } }
-        ),
+        buttons: buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
       },
     },
   })
