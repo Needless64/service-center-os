@@ -107,13 +107,17 @@ export async function getUpcomingBookingsForReminders(today: string): Promise<Sa
   return sanityClient.fetch(upcomingBookingsForRemindersQuery, { today })
 }
 
-const latestActiveBookingQuery = defineQuery(`*[_type == "booking" && customer._ref == $customerId && status in ["booked","received"]] | order(scheduledDate asc, scheduledTime asc)[0]{
+// Returns the soonest UPCOMING active booking. Filters out past dates
+// (in IST) so a customer with a 14:00 + 17:00 + 18:00 booking gets the
+// 18:00 one back, not the 14:00 that already happened. Sorting is
+// ascending by date+time so the soonest future booking is at index 0.
+const latestActiveBookingQuery = defineQuery(`*[_type == "booking" && customer._ref == $customerId && status in ["booked","received"] && scheduledDate >= $today] | order(scheduledDate asc, scheduledTime asc)[0]{
   ...,
   customer->{ _id, name, phoneNumber }
 }`)
 
-export async function getLatestActiveBooking(customerId: string): Promise<SanityBooking | null> {
-  return sanityClient.fetch(latestActiveBookingQuery, { customerId })
+export async function getLatestActiveBooking(customerId: string, today: string): Promise<SanityBooking | null> {
+  return sanityClient.fetch(latestActiveBookingQuery, { customerId, today })
 }
 
 const todayDashboardQuery = defineQuery(`{

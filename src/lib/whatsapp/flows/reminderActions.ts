@@ -7,6 +7,15 @@ import { format, differenceInMinutes } from 'date-fns'
 import { RESCHEDULE_LOCK_MINUTES } from '../locks'
 import { getAgencyPhone } from '../env'
 
+// IST "today" string (YYYY-MM-DD). Used to filter out past bookings
+// from "active" lookups so reschedule/confirm pick the soonest future
+// one, not the earliest historical one.
+function todayIST(): string {
+  const now = new Date()
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`
+}
+
 function minutesUntilAppointment(scheduledDate: string, scheduledTime: string): number {
   const appointmentDateTime = new Date(`${scheduledDate}T${scheduledTime}:00+05:30`)
   return differenceInMinutes(appointmentDateTime, new Date())
@@ -30,7 +39,7 @@ async function sendLockErrorWithCall(phone: string, message: string) {
 export async function handleRemindConfirm(phone: string) {
   const customer = await getCustomerByPhone(phone)
   if (!customer) { await sendText(phone, 'No active booking found.'); return }
-  const booking = await getLatestActiveBooking(customer._id)
+  const booking = await getLatestActiveBooking(customer._id, todayIST())
   if (!booking) { await sendText(phone, 'No active booking found.'); return }
 
   if (booking.confirmedAt) {
@@ -63,7 +72,7 @@ function formatServiceLabel(value: string): string {
 export async function startReschedule(phone: string) {
   const customer = await getCustomerByPhone(phone)
   if (!customer) { await sendText(phone, 'No booking found.'); return }
-  const booking = await getLatestActiveBooking(customer._id)
+  const booking = await getLatestActiveBooking(customer._id, todayIST())
   if (!booking) { await sendText(phone, 'No active booking found.'); return }
 
   if (booking.confirmedAt) {
@@ -155,7 +164,7 @@ export async function handleRescheduleSlotSelection(phone: string, slotPayload: 
   // Re-fetch the booking to check the lock at commit time
   const customer = await getCustomerByPhone(phone)
   if (!customer) { await sendText(phone, 'Customer record not found.'); return }
-  const booking = await getLatestActiveBooking(customer._id)
+  const booking = await getLatestActiveBooking(customer._id, todayIST())
   if (!booking || booking._id !== session.activeBookingDocId) {
     await sendText(phone, 'Booking not found. Reply *status* to see your active bookings.')
     await resetSession(phone)
