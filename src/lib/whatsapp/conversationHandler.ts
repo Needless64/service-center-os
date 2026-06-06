@@ -22,7 +22,7 @@ export async function handleIncomingMessage(phone: string, text: string, interac
 
     // Treat a missing session as a fresh user — no collecting state to escape.
     const state = session?.state
-    if (state === 'COLLECTING_VEHICLE_NUMBER' || state === 'COLLECTING_VEHICLE_MODEL' || state === 'COLLECTING_CUSTOMER_NAME') {
+    if (state === 'COLLECTING_VEHICLE_NUMBER' || state === 'COLLECTING_CUSTOMER_NAME') {
       // Allow the user to escape the data-entry state with control keywords
       // (without this they can be stuck for the session TTL if they entered
       // the flow by mistake and typed something like "cancel" or "menu").

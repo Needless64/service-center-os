@@ -3,7 +3,7 @@ import { getSession, updateSession, resetSession } from '../sessionManager'
 import { formatServiceType } from '../intentParser'
 import { getAvailableDays } from '../slotHelper'
 import { getCustomerByPhone, getSlot, getDefaultBranch } from '../../sanity/queries'
-import { createCustomer, createBooking, incrementSlot, addVehicleToCustomer } from '../../sanity/mutations'
+import { createCustomer, createBooking, incrementSlot, addVehicleToCustomer, releaseSlot, updateBookingStatus } from '../../sanity/mutations'
 import { format } from 'date-fns'
 
 const SERVICE_OPTIONS = [
@@ -94,19 +94,18 @@ export async function handleBookingTextInput(phone: string, text: string) {
 
   switch (session.state) {
     case 'COLLECTING_VEHICLE_NUMBER': {
-      await updateSession(phone, { vehicleNumber: text.toUpperCase(), state: 'COLLECTING_VEHICLE_MODEL' })
-      await sendText(phone, `Vehicle: *${text.toUpperCase()}* ✅\n\nWhat is the *vehicle model*?\n_(Example: Honda Activa 6G, Maruti Swift)_`)
-      break
-    }
-    case 'COLLECTING_VEHICLE_MODEL': {
-      await updateSession(phone, { vehicleModel: text })
-      const updated = await getSession(phone)
-      if (updated.isReturningCustomer) {
-        await updateSession(phone, { state: 'SELECTING_SLOT_DATE' })
+      // Vehicle model is no longer asked — skip straight to either
+      // name collection (new customer) or slot selection (returning).
+      await updateSession(phone, {
+        vehicleNumber: text.toUpperCase(),
+        vehicleModel: '',
+        state: session.isReturningCustomer ? 'SELECTING_SLOT_DATE' : 'COLLECTING_CUSTOMER_NAME',
+      })
+      await sendText(phone, `Vehicle: *${text.toUpperCase()}* ✅`)
+      if (session.isReturningCustomer) {
         await showSlotSelection(phone)
       } else {
-        await updateSession(phone, { state: 'COLLECTING_CUSTOMER_NAME' })
-        await sendText(phone, `Model: *${text}* ✅\n\nEnter your *full name*:`)
+        await sendText(phone, `Now, what is your *full name*?`)
       }
       break
     }
@@ -193,7 +192,7 @@ export async function confirmBooking(phone: string) {
   try {
     let customerId = session.existingCustomerId
     if (!customerId) {
-      const customer = await createCustomer({ name: session.customerName!, phoneNumber: phone, vehicleNumber: session.vehicleNumber!, vehicleModel: session.vehicleModel ?? '', manufacturer: '' })
+      const customer = await createCustomer({ name: session.customerName || 'Customer', phoneNumber: phone, vehicleNumber: session.vehicleNumber!, vehicleModel: session.vehicleModel ?? '', manufacturer: '' })
       customerId = customer._id
     } else {
       const existing = await getCustomerByPhone(phone)
@@ -202,7 +201,23 @@ export async function confirmBooking(phone: string) {
     }
     const booking = await createBooking({ customerId, vehicleNumber: session.vehicleNumber!, vehicleModel: session.vehicleModel ?? '', manufacturer: '', serviceType: session.serviceType!, scheduledDate: session.selectedDate!, scheduledTime: session.selectedTime!, notes: '' })
     const slotDoc = await getSlot(session.selectedDate!, session.selectedTime!)
-    if (slotDoc) await incrementSlot(slotDoc._id)
+    if (slotDoc) {
+      const ok = await incrementSlot(slotDoc._id)
+      if (ok) {
+        // Post-increment capacity guard. If two confirms raced past capacity,
+        // roll back this increment and the booking.
+        const recheck = await getSlot(session.selectedDate!, session.selectedTime!)
+        if (recheck && recheck.currentBookings > recheck.capacity) {
+          await releaseSlot(slotDoc._id)
+          await updateBookingStatus(booking._id, 'cancelled')
+          throw new Error('Slot overbooked; rolled back.')
+        }
+      } else {
+        // increment failed outright — refuse the booking
+        await updateBookingStatus(booking._id, 'cancelled')
+        throw new Error('Slot increment failed; refusing booking.')
+      }
+    }
     const timeFormatted = format(new Date(`2000-01-01T${session.selectedTime}`), 'h:mm a')
     const dateFormatted = format(new Date(session.selectedDate!), 'EEE, d MMM yyyy')
     await sendText(phone, `✅ *Booking Confirmed!*\n\n🎫 Booking ID: *${booking.bookingId}*\n📅 Date: ${dateFormatted}\n⏰ Time: ${timeFormatted}\n🚗 Vehicle: ${session.vehicleNumber}\n🔧 Service: ${formatServiceType(session.serviceType ?? '')}\n\nWe'll send you reminders before your appointment.\n\nTo check status, reply: *status*\nTo cancel, reply: *cancel*\n\nSee you on ${dateFormatted}! 🙏`)
