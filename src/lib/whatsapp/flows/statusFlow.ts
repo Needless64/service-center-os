@@ -49,16 +49,21 @@ export async function handleStatusCheck(phone: string) {
     return
   }
 
-  // Multiple bookings → show picker
-  const rows = bookings.map((b) => ({
+  // Multiple bookings → show picker. WhatsApp list messages cap at 10
+  // rows; slice the most recent and hint about the rest.
+  const recent = bookings.slice(0, 10)
+  const rows = recent.map((b) => ({
     id: `status_booking_${b._id}`,
     title: `${format(new Date(b.scheduledDate + 'T00:00:00'), 'd MMM')} ${format(new Date(`2000-01-01T${b.scheduledTime}`), 'h:mm a')}`,
     description: `${b.vehicleNumber} · ${formatServiceType(b.serviceType)}`,
   }))
 
+  const more = bookings.length - recent.length
+  const moreHint = more > 0 ? `\n_Plus ${more} more — see them on our website._` : ''
+
   await sendList(
     phone,
-    `You have *${bookings.length} active bookings*. Which one to check?`,
+    `You have *${bookings.length} active bookings*. Which one to check?${moreHint}`,
     'Select',
     [{ title: 'Your Bookings', rows }]
   )
@@ -139,14 +144,18 @@ export async function handleCancelRequest(phone: string) {
     return
   }
 
-  // Multiple — show picker
-  const rows = cancellable.map((b) => ({
+  // Multiple — show picker. WhatsApp list messages cap at 10 rows; slice.
+  const recent = cancellable.slice(0, 10)
+  const rows = recent.map((b) => ({
     id: `cancel_booking_${b._id}`,
     title: `${format(new Date(b.scheduledDate + 'T00:00:00'), 'd MMM')} ${format(new Date(`2000-01-01T${b.scheduledTime}`), 'h:mm a')}`,
     description: `${b.vehicleNumber} · ${formatServiceType(b.serviceType)}`,
   }))
 
-  await sendList(phone, `Which booking to cancel?`, 'Select', [
+  const more = cancellable.length - recent.length
+  const moreHint = more > 0 ? `\n_Plus ${more} more — please call us for those._` : ''
+
+  await sendList(phone, `Which booking to cancel?${moreHint}`, 'Select', [
     { title: 'Select to Cancel', rows },
   ])
 }
