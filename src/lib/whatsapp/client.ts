@@ -1,3 +1,5 @@
+import { normalizePhone } from '../utils'
+
 const WA_API_URL = `https://graph.facebook.com/v21.0`
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!
@@ -17,6 +19,106 @@ async function post(endpoint: string, body: object) {
     throw new Error(`WhatsApp API ${res.status}: ${err}`)
   }
   return res.json()
+}
+
+/**
+ * Send a pre-approved template message.
+ *
+ * Throws on failure with a `code` property carrying the Meta error code so
+ * callers can decide whether to fall back to freeform (e.g. template not
+ * approved yet, or window is closed and a different template would be
+ * required). Codes we care about:
+ *
+ *   132001 — Template name does not exist in this WABA
+ *   131047 — Re-engagement message required (no 24h window, need a template)
+ *   131026 — User has not opened the conversation in >24h
+ *   131000  generic — see message
+ */
+export async function sendTemplate(
+  to: string,
+  templateName: string,
+  languageCode: string = 'en',
+  bodyVariables: string[] = []
+) {
+  return post(`${PHONE_NUMBER_ID}/messages`, {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      components: bodyVariables.length
+        ? [
+            {
+              type: 'body',
+              parameters: bodyVariables.map((v) => ({ type: 'text', text: String(v ?? '') })),
+            },
+          ]
+        : [],
+    },
+  })
+}
+
+/**
+ * Best-effort wrapper used by the cron / admin notification paths.
+ * Tries the template first; on the typical "not approved / not allowed"
+ * errors, falls back to the legacy freeform text. This keeps the bot
+ * working in the window between cron firing and Meta approving the
+ * templates, and after approval automatically switches to the proactive
+ * template path.
+ *
+ * Logs the fallback so you can see when it's still being used.
+ */
+export async function sendTemplateWithFallback(
+  to: string,
+  templateName: string,
+  fallbackText: string,
+  bodyVariables: string[] = []
+) {
+  try {
+    return await sendTemplate(to, templateName, 'en', bodyVariables)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Codes that mean "template won't work, use freeform": 132001, 131047, 131026
+    const fallbackCodes = ['132001', '131047', '131026', '131000']
+    const shouldFallback = fallbackCodes.some((c) => msg.includes(c))
+    if (shouldFallback) {
+      console.warn(`[WA] template ${templateName} failed (${msg.split(':')[1]?.trim() ?? 'unknown'}); falling back to freeform`)
+      return sendText(to, fallbackText)
+    }
+    throw err
+  }
+}
+
+/**
+ * Tries each template name in order; the first one Meta accepts wins.
+ * Use this when you have multiple versions of a template (e.g. v5 with
+ * shorter copy, v6 with a polished line) and want to prefer the latest
+ * once it's approved while gracefully using the older one in the
+ * meantime. Same "not approved" codes as the single-template fallback
+ * move on to the next candidate. If every template fails, returns the
+ * freeform text.
+ */
+export async function sendTemplateTryMultiple(
+  to: string,
+  templateNames: string[],
+  fallbackText: string,
+  bodyVariables: string[] = []
+) {
+  let lastErr: unknown = null
+  for (const name of templateNames) {
+    try {
+      return await sendTemplate(to, name, 'en', bodyVariables)
+    } catch (err) {
+      lastErr = err
+      const msg = err instanceof Error ? err.message : String(err)
+      const fallbackCodes = ['132001', '131047', '131026', '131000']
+      if (!fallbackCodes.some((c) => msg.includes(c))) throw err
+      console.warn(`[WA] template ${name} not available; trying next candidate`)
+    }
+  }
+  console.warn(`[WA] all ${templateNames.length} template candidates failed; falling back to freeform`)
+  return sendText(to, fallbackText)
 }
 
 // ─── Send plain text ─────────────────────────────────────────────────────────
@@ -57,7 +159,14 @@ export async function sendList(
 
 export type ReplyButton = { id: string; title: string }
 
-export async function sendButtons(to: string, body: string, buttons: ReplyButton[]) {
+// Mixed union: quick-reply buttons carry an `id` (handled by our webhook),
+// phone-number buttons carry a `phoneNumber` (open the user's native dialer
+// pre-filled with that number on tap — no webhook roundtrip).
+export type InteractiveButton =
+  | { id: string; title: string }
+  | { type: 'phone_number'; phoneNumber: string; title: string }
+
+export async function sendButtons(to: string, body: string, buttons: InteractiveButton[]) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
     messaging_product: 'whatsapp',
     to,
@@ -66,7 +175,11 @@ export async function sendButtons(to: string, body: string, buttons: ReplyButton
       type: 'button',
       body: { text: body },
       action: {
-        buttons: buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
+        buttons: buttons.map((b) =>
+          'phoneNumber' in b
+            ? { type: 'phone_number', phone_number: b.phoneNumber, text: b.title }
+            : { type: 'reply', reply: { id: b.id, title: b.title } }
+        ),
       },
     },
   })
@@ -102,7 +215,7 @@ export function parseIncomingWebhook(body: Record<string, unknown>): IncomingMes
     if (!messages?.length) return null
 
     const msg = messages[0] as Record<string, unknown>
-    const from = msg.from as string
+    const from = normalizePhone(msg.from as string)
     const messageId = msg.id as string
     const type = msg.type as string
 

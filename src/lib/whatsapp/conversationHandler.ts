@@ -3,70 +3,134 @@ import { getSession, resetSession } from './sessionManager'
 import { parseIntent } from './intentParser'
 import { startBooking, handleServiceTypeSelection, handleVehicleSelection, showPreviousVehiclesMenu, handleBookingTextInput, handleSlotSelection, handleDaySelection, confirmBooking } from './flows/bookingFlow'
 import { handleStatusCheck, handleCancelRequest, handleConfirmCancel, handleBookingSelection, handleCancelBookingSelection } from './flows/statusFlow'
+import { handleRemindConfirm, handleRemindReschedule, startReschedule, handleRescheduleDaySelection, handleRescheduleSlotSelection } from './flows/reminderActions'
 
 export async function handleIncomingMessage(phone: string, text: string, interactiveId?: string) {
-  const session = await getSession(phone)
-
-  if (interactiveId) {
-    await handleInteractiveReply(phone, interactiveId)
-    return
+  let session
+  try {
+    session = await getSession(phone)
+  } catch (err) {
+    console.error('[handler] getSession failed:', err)
+    session = null
   }
 
-  const state = session.state
-  if (state === 'COLLECTING_VEHICLE_NUMBER' || state === 'COLLECTING_VEHICLE_MODEL' || state === 'COLLECTING_CUSTOMER_NAME') {
-    await handleBookingTextInput(phone, text)
-    return
-  }
+  try {
+    if (interactiveId) {
+      await handleInteractiveReply(phone, interactiveId)
+      return
+    }
 
-  const intent = parseIntent(text)
-  switch (intent) {
-    case 'BOOK_SERVICE': await startBooking(phone); break
-    case 'CHECK_STATUS': await handleStatusCheck(phone); break
-    case 'CANCEL_BOOKING': await handleCancelRequest(phone); break
-    case 'CONFIRM_YES':
-      if (state === 'CONFIRMING_BOOKING') { await confirmBooking(phone) } else { await sendWelcome(phone) }
-      break
-    case 'CONFIRM_NO':
-      await resetSession(phone)
-      await sendText(phone, `No problem! Reply *book* when you're ready. 😊`)
-      break
-    case 'HELP':
-    default:
-      await sendWelcome(phone)
+    // Treat a missing session as a fresh user — no collecting state to escape.
+    const state = session?.state
+    if (state === 'COLLECTING_VEHICLE_NUMBER' || state === 'COLLECTING_VEHICLE_MODEL' || state === 'COLLECTING_CUSTOMER_NAME') {
+      // Allow the user to escape the data-entry state with control keywords
+      // (without this they can be stuck for the session TTL if they entered
+      // the flow by mistake and typed something like "cancel" or "menu").
+      const lower = text.trim().toLowerCase()
+      const escape =
+        lower === 'cancel' || lower === 'stop' || lower === 'exit' ||
+        lower === 'menu' || lower === 'help' || lower === 'hi' || lower === 'hello' ||
+        lower === 'start' || lower === 'book' || lower === 'status'
+      if (escape) {
+        await resetSession(phone)
+        await sendText(phone, `No problem — exited the current step. Reply *book* to start over or *menu* for options. 👋`)
+        return
+      }
+      await handleBookingTextInput(phone, text)
+      return
+    }
+
+    const intent = parseIntent(text)
+    switch (intent) {
+      case 'BOOK_SERVICE': await startBooking(phone); break
+      case 'CHECK_STATUS': await handleStatusCheck(phone); break
+      case 'CANCEL_BOOKING': await handleCancelRequest(phone); break
+      case 'RESCHEDULE_BOOKING': await startReschedule(phone); break
+      case 'CONFIRM_YES':
+        if (state === 'CONFIRMING_BOOKING') { await confirmBooking(phone) } else { await sendWelcome(phone) }
+        break
+      case 'CONFIRM_NO':
+        await resetSession(phone)
+        await sendText(phone, `No problem! Reply *book* when you're ready. 😊`)
+        break
+      case 'HELP':
+      default:
+        await sendWelcome(phone)
+    }
+  } catch (err) {
+    // Per-message failure MUST not crash the webhook — log + send a soft
+    // freeform prompt so the user can try again or re-trigger the menu.
+    console.error('[handler] message processing failed:', err)
+    try {
+      await sendText(phone, `Hmm, something went sideways on my end. Reply *menu* and I'll start fresh. 🙏`)
+    } catch {
+      // best-effort only; if even this fails, the user is offline anyway
+    }
   }
 }
 
 async function handleInteractiveReply(phone: string, id: string) {
-  if (id.startsWith('svc_')) { await handleServiceTypeSelection(phone, id); return }
-  if (id.startsWith('day_')) { await handleDaySelection(phone, id.replace('day_', '')); return }
-  if (id.startsWith('slot_')) { await handleSlotSelection(phone, id); return }
-  if (id === 'vehicles_menu') { await showPreviousVehiclesMenu(phone); return }
-  if (id.startsWith('vehicle_')) { await handleVehicleSelection(phone, id.replace('vehicle_', '')); return }
-  if (id.startsWith('status_booking_')) { await handleBookingSelection(phone, id.replace('status_booking_', '')); return }
-  if (id.startsWith('cancel_booking_')) { await handleCancelBookingSelection(phone, id.replace('cancel_booking_', '')); return }
+  try {
+    if (id.startsWith('svc_')) { await handleServiceTypeSelection(phone, id); return }
+    if (id.startsWith('day_')) { await handleDaySelection(phone, id.replace('day_', '')); return }
+    if (id.startsWith('slot_')) { await handleSlotSelection(phone, id); return }
+    if (id === 'vehicles_menu') { await showPreviousVehiclesMenu(phone); return }
+    if (id.startsWith('vehicle_')) { await handleVehicleSelection(phone, id.replace('vehicle_', '')); return }
+    if (id.startsWith('status_booking_')) { await handleBookingSelection(phone, id.replace('status_booking_', '')); return }
+    if (id.startsWith('cancel_booking_')) { await handleCancelBookingSelection(phone, id.replace('cancel_booking_', '')); return }
+    // Reminder-scoped button IDs (svc_reminder_30m template quick-replies).
+    // The bookingId suffix is ignored — the handler always resolves to the
+    // customer's latest active booking, since Meta templates have static
+    // button payloads shared across all sends of the template.
+    if (id.startsWith('remind_confirm')) { await handleRemindConfirm(phone); return }
+    if (id.startsWith('remind_reschedule')) { await handleRemindReschedule(phone); return }
+    // Reschedule picker (reuses the booking flow's day/slot list but with
+    // reschedule_day_/reschedule_slot_ prefixes to disambiguate).
+    if (id.startsWith('reschedule_day_')) { await handleRescheduleDaySelection(phone, id.replace('reschedule_day_', '')); return }
+    if (id.startsWith('reschedule_slot_')) { await handleRescheduleSlotSelection(phone, id); return }
 
-  switch (id) {
-    case 'action_book': await startBooking(phone); break
-    case 'action_status': await handleStatusCheck(phone); break
-    case 'action_cancel': await handleCancelRequest(phone); break
-    case 'confirm_booking': await confirmBooking(phone); break
-    case 'cancel_booking_flow':
+    switch (id) {
+      case 'action_book': await startBooking(phone); break
+      case 'action_status': await handleStatusCheck(phone); break
+      case 'action_cancel': await handleCancelRequest(phone); break
+      case 'confirm_booking': await confirmBooking(phone); break
+      case 'cancel_booking_flow':
+        await resetSession(phone)
+        await sendText(phone, `No problem. Reply *book* whenever you're ready. 👋`)
+        break
+      case 'confirm_cancel': await handleConfirmCancel(phone); break
+      case 'keep_booking':
+        await resetSession(phone)
+        await sendText(phone, `Booking kept. See you at your appointment! 👍`)
+        break
+      default: await sendWelcome(phone)
+    }
+  } catch (err) {
+    console.error('[handler] interactive reply failed:', err)
+    try {
       await resetSession(phone)
-      await sendText(phone, `No problem. Reply *book* whenever you're ready. 👋`)
-      break
-    case 'confirm_cancel': await handleConfirmCancel(phone); break
-    case 'keep_booking':
-      await resetSession(phone)
-      await sendText(phone, `Booking kept. See you at your appointment! 👍`)
-      break
-    default: await sendWelcome(phone)
+      await sendText(phone, `Something glitched. Your session is reset — reply *menu* to start over. 🙏`)
+    } catch {}
   }
 }
 
 async function sendWelcome(phone: string) {
-  await sendButtons(phone, `👋 Welcome! I'm your *Service Center assistant*.\n\nWhat would you like to do?`, [
+  // Welcome menu — sent on first contact, after session reset, or whenever
+  // the user asks for help/menu. Includes both button shortcuts and explicit
+  // text commands so users on older WhatsApp versions (no interactive
+  // buttons) can still navigate by typing.
+  const body =
+    `👋 *Welcome to Sharma Bajaj Service Centre!*\n\n` +
+    `Your one-stop assistant for bookings, status checks, and cancellations.\n\n` +
+    `📌 *Quick commands:*\n` +
+    `• Say *BOOK* — start a new service booking\n` +
+    `• Say *STATUS* — check your active booking\n` +
+    `• Say *CANCEL* — cancel a booking\n\n` +
+    `Or tap a button below:`
+
+  await sendButtons(phone, body, [
     { id: 'action_book', title: '📅 Book Service' },
     { id: 'action_status', title: '📊 My Status' },
-    { id: 'action_cancel', title: '❌ Cancel Booking' },
   ])
 }
+

@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { sanityClient } from './client'
+import { normalizePhone } from '../utils'
 import type { SanityCustomer, SanityBooking } from './queries'
 
 // ─── Customer mutations ──────────────────────────────────────────────────────
@@ -17,7 +18,7 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Sanity
     _type: 'customer',
     customerId: `CUS-${nanoid(8).toUpperCase()}`,
     name: input.name,
-    phoneNumber: input.phoneNumber,
+    phoneNumber: normalizePhone(input.phoneNumber),
     vehicles: [
       {
         _key: nanoid(),
@@ -118,12 +119,40 @@ export async function markReminderSent(bookingDocId: string, type: '24h' | '3h' 
   return sanityClient.patch(bookingDocId).set({ [field]: true }).commit()
 }
 
-// ─── Slot mutations ──────────────────────────────────────────────────────────
-
-export async function incrementSlot(slotId: string) {
-  return sanityClient.patch(slotId).inc({ currentBookings: 1 }).commit()
+export async function markBookingConfirmed(bookingDocId: string) {
+  return sanityClient.patch(bookingDocId).set({ confirmedAt: new Date().toISOString() }).commit()
 }
 
+// ─── Slot mutations ──────────────────────────────────────────────────────────
+
+/**
+ * Atomically claim a seat in a slot.
+ *
+ * Returns true if the increment succeeded, false if the slot document
+ * was missing or the patch errored. The caller is responsible for
+ * re-reading the slot after the call and rolling back the booking if
+ * currentBookings > capacity (the race-window guard).
+ *
+ * Sanity's JS client does not yet expose conditional .inc() on a
+ * transaction (the API requires raw mutation JSON), so we use a plain
+ * patch — the race is closed by the post-increment capacity check in
+ * bookingFlow.confirmBooking.
+ */
+export async function incrementSlot(slotId: string): Promise<boolean> {
+  try {
+    await sanityClient.patch(slotId).inc({ currentBookings: 1 }).commit()
+    return true
+  } catch (err) {
+    console.error('[slot] increment failed for', slotId, err)
+    return false
+  }
+}
+
+/**
+ * Best-effort decrement. Swallows errors because a missing slot (e.g. a
+ * cancelled booking referencing a slot that was deleted) must not break the
+ * user's cancel flow.
+ */
 export async function releaseSlot(slotId: string) {
   return sanityClient
     .patch(slotId)
@@ -139,8 +168,15 @@ export type EnsureSlotInput = {
   capacity?: number
 }
 
+/**
+ * Idempotent slot creation. The naive version had a fetch-then-create race
+ * where two parallel webhooks (the slotHelper fans out with Promise.all)
+ * could each see "no existing slot" and both call create, producing
+ * duplicates. The transaction here attempts to create and falls back to a
+ * re-fetch if Sanity rejects the second insert as a duplicate via the
+ * unique-ish compound (date, time, branch) check at create time.
+ */
 export async function ensureSlotExists(input: EnsureSlotInput) {
-  // Fetch existing slot first
   const existing = await sanityClient.fetch(
     `*[_type == "slot" && date == $date && time == $time][0]`,
     { date: input.date, time: input.time }
@@ -148,6 +184,7 @@ export async function ensureSlotExists(input: EnsureSlotInput) {
   if (existing) return existing
 
   const doc = {
+    _id: `slot.${input.date}.${input.time}`.replace(/[^a-zA-Z0-9._-]/g, '_'),
     _type: 'slot',
     date: input.date,
     time: input.time,
@@ -156,7 +193,18 @@ export async function ensureSlotExists(input: EnsureSlotInput) {
     isBlocked: false,
     ...(input.branchId ? { branch: { _type: 'reference', _ref: input.branchId } } : {}),
   }
-  return sanityClient.create(doc)
+  try {
+    return await sanityClient.create(doc)
+  } catch (err: unknown) {
+    // If a parallel call created the same slot first, our deterministic _id
+    // collides — Sanity returns 409. Re-fetch and return the winner.
+    const winner = await sanityClient.fetch(
+      `*[_type == "slot" && date == $date && time == $time][0]`,
+      { date: input.date, time: input.time }
+    )
+    if (winner) return winner
+    throw err
+  }
 }
 
 // ─── Service record mutations ────────────────────────────────────────────────

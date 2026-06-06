@@ -1,5 +1,6 @@
 import { defineQuery } from 'groq'
 import { readClient, sanityClient } from './client'
+import { normalizePhone } from '../utils'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ export type SanityBooking = {
   reminderSent24h?: boolean
   reminderSent3h?: boolean
   reminderSent30m?: boolean
+  confirmedAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -61,7 +63,7 @@ export type SanityBranch = {
 const customerByPhoneQuery = defineQuery(`*[_type == "customer" && phoneNumber == $phone][0]`)
 
 export async function getCustomerByPhone(phone: string): Promise<SanityCustomer | null> {
-  return sanityClient.fetch(customerByPhoneQuery, { phone })
+  return sanityClient.fetch(customerByPhoneQuery, { phone: normalizePhone(phone) })
 }
 
 // ─── Booking queries ─────────────────────────────────────────────────────────
@@ -105,6 +107,15 @@ export async function getUpcomingBookingsForReminders(today: string): Promise<Sa
   return sanityClient.fetch(upcomingBookingsForRemindersQuery, { today })
 }
 
+const latestActiveBookingQuery = defineQuery(`*[_type == "booking" && customer._ref == $customerId && status in ["booked","received"]] | order(scheduledDate asc, scheduledTime asc)[0]{
+  ...,
+  customer->{ _id, name, phoneNumber }
+}`)
+
+export async function getLatestActiveBooking(customerId: string): Promise<SanityBooking | null> {
+  return sanityClient.fetch(latestActiveBookingQuery, { customerId })
+}
+
 const todayDashboardQuery = defineQuery(`{
   "bookings": *[_type == "booking" && scheduledDate == $today]{
     ...,
@@ -143,10 +154,10 @@ export async function getDefaultBranch(): Promise<SanityBranch | null> {
 
 const analyticsQuery = defineQuery(`{
   "totalBookings": count(*[_type == "booking" && scheduledDate >= $startDate && scheduledDate <= $endDate]),
-  "completed": count(*[_type == "booking" && scheduledDate >= $startDate && scheduledDate <= $endDate && status == "delivered"]),
+  "completed": count(*[_type == "booking" && scheduledDate >= $startDate && scheduledDate <= $endDate && status == "completed"]),
   "cancelled": count(*[_type == "booking" && scheduledDate >= $startDate && scheduledDate <= $endDate && status == "cancelled"]),
   "noShow": count(*[_type == "booking" && scheduledDate >= $startDate && scheduledDate <= $endDate && status == "no_show"]),
-  "newCustomers": count(*[_type == "customer" && createdAt >= $startDate + "T00:00:00Z"])
+  "newCustomers": count(*[_type == "customer" && createdAt >= $startDate + "T00:00:00Z" && createdAt <= $endDate + "T23:59:59Z"])
 }`)
 
 export async function getAnalytics(startDate: string, endDate: string) {

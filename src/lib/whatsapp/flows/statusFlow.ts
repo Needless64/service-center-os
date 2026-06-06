@@ -1,15 +1,29 @@
 import { sendText, sendButtons, sendList } from '../client'
-import { getCustomerByPhone, getActiveBookingForCustomer, getAllActiveBookingsForCustomer } from '../../sanity/queries'
-import { cancelBooking } from '../../sanity/mutations'
+import { getCustomerByPhone, getActiveBookingForCustomer, getAllActiveBookingsForCustomer, getSlot } from '../../sanity/queries'
+import { cancelBooking, releaseSlot } from '../../sanity/mutations'
 import { STATUS_EMOJI, STATUS_LABELS, formatServiceType } from '../intentParser'
 import { getSession, updateSession, resetSession } from '../sessionManager'
 import { format, differenceInMinutes } from 'date-fns'
-
-const RESCHEDULE_LOCK_MINUTES = 30
+import { RESCHEDULE_LOCK_MINUTES } from '../locks'
+import { getAgencyPhone } from '../env'
 
 function minutesUntilAppointment(scheduledDate: string, scheduledTime: string): number {
-  const appointmentDateTime = new Date(`${scheduledDate}T${scheduledTime}:00`)
+  const appointmentDateTime = new Date(`${scheduledDate}T${scheduledTime}:00+05:30`)
   return differenceInMinutes(appointmentDateTime, new Date())
+}
+
+// Send a "you can't do this online, please call us" reply. If the agency
+// phone env var is set, attach a tap-to-call button; otherwise fall back
+// to text-only so the customer still knows how to reach a human.
+async function sendLockErrorWithCall(phone: string, message: string) {
+  const phoneNumber = getAgencyPhone()
+  if (phoneNumber) {
+    await sendButtons(phone, message, [
+      { type: 'phone_number', phoneNumber, title: '📞 Call Workshop' },
+    ])
+  } else {
+    await sendText(phone, message)
+  }
 }
 
 // ─── Status check ─────────────────────────────────────────────────────────────
@@ -78,7 +92,7 @@ export async function showBookingStatus(phone: string, booking: SanityBookingLik
         { id: 'action_cancel', title: '❌ Cancel Booking' },
       ])
     } else {
-      await sendText(phone, `⚠️ Cancellations are locked within ${RESCHEDULE_LOCK_MINUTES} minutes of your appointment.`)
+      await sendLockErrorWithCall(phone, `⚠️ Cancellations are locked within ${RESCHEDULE_LOCK_MINUTES} minutes of your appointment. Please call us to make changes.`)
     }
     return
   }
@@ -140,7 +154,7 @@ export async function handleCancelRequest(phone: string) {
 async function promptCancel(phone: string, booking: SanityBookingLike) {
   const minsLeft = minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime)
   if (minsLeft <= RESCHEDULE_LOCK_MINUTES) {
-    await sendText(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us.`)
+    await sendLockErrorWithCall(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us to make changes.`)
     return
   }
 
@@ -187,13 +201,31 @@ export async function handleConfirmCancel(phone: string) {
     const bookings = await getAllActiveBookingsForCustomer(customer._id)
     const booking = bookings.find((b) => b._id === activeBookingDocId)
     if (booking && minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime) <= RESCHEDULE_LOCK_MINUTES) {
-      await sendText(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us.`)
+      await sendLockErrorWithCall(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us to make changes.`)
       await resetSession(phone)
       return
     }
   }
 
   await cancelBooking(activeBookingDocId)
+  // Best-effort slot release — the booking doesn't store slotId, so we
+  // recover it by re-querying the customer's bookings and matching the
+  // date+time against the slot document. Failures here must not block
+  // the cancel response.
+  try {
+    const customer = await getCustomerByPhone(phone)
+    if (customer) {
+      const all = await getAllActiveBookingsForCustomer(customer._id)
+      const target = all.find((b) => b._id === activeBookingDocId)
+      if (target) {
+        const slot = await getSlot(target.scheduledDate, target.scheduledTime)
+        if (slot) await releaseSlot(slot._id)
+      }
+    }
+  } catch (err) {
+    console.error('[cancel] slot release failed:', err)
+  }
+
   await sendText(phone, `✅ Booking *${activeBookingId}* cancelled.\n\nTo book again, reply *book*. 🙏`)
   await resetSession(phone)
 }

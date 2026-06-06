@@ -11,6 +11,9 @@ export const SERVICE_TYPES = [
 export const BOOKING_STATUSES = [
   { title: 'Booked', value: 'booked' },
   { title: 'Received', value: 'received' },
+  { title: 'Inspection', value: 'inspection' },
+  { title: 'Ready for Pickup', value: 'ready' },
+  { title: 'Delivered', value: 'delivered' },
   { title: 'Completed', value: 'completed' },
   { title: 'Cancelled', value: 'cancelled' },
   { title: 'No Show', value: 'no_show' },
@@ -61,6 +64,7 @@ export const bookingSchema = defineType({
     defineField({ name: 'finalCost', title: 'Final Cost (₹)', type: 'number' }),
     defineField({ name: 'estimatedCompletionTime', title: 'Estimated Completion', type: 'datetime' }),
     defineField({ name: 'completedAt', title: 'Completed At', type: 'datetime' }),
+    defineField({ name: 'confirmedAt', title: 'Confirmed At', type: 'datetime' }),
     defineField({ name: 'reminderSent24h', title: '24h Reminder Sent', type: 'boolean', initialValue: false }),
     defineField({ name: 'reminderSent3h', title: '3h Reminder Sent', type: 'boolean', initialValue: false }),
     defineField({ name: 'reminderSent30m', title: '30m Reminder Sent', type: 'boolean', initialValue: false }),
