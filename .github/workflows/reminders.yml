@@ -2,7 +2,7 @@ name: Send Reminders
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # Every 5 minutes
+    - cron: '*/15 * * * *'   # Every 15 minutes (within GitHub Actions free budget; the cron route's 30-90 min catch window absorbs any missed ticks)
   workflow_dispatch:           # Manual trigger
 
 jobs:
