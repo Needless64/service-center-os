@@ -93,6 +93,9 @@ async function handleInteractiveReply(phone: string, id: string) {
       case 'action_book': await startBooking(phone); break
       case 'action_status': await handleStatusCheck(phone); break
       case 'action_cancel': await handleCancelRequest(phone); break
+      case 'action_manage': await handleManageBookingEntry(phone); break
+      case 'manage_cancel': await handleCancelRequest(phone); break
+      case 'manage_reschedule': await startReschedule(phone); break
       case 'confirm_booking': await confirmBooking(phone); break
       case 'cancel_booking_flow':
         await resetSession(phone)
@@ -118,19 +121,36 @@ async function sendWelcome(phone: string) {
   // Welcome menu — sent on first contact, after session reset, or whenever
   // the user asks for help/menu. Includes both button shortcuts and explicit
   // text commands so users on older WhatsApp versions (no interactive
-  // buttons) can still navigate by typing.
+  // buttons) can still navigate by typing. 3-button cap: Book + Status +
+  // "Manage Booking" (which fans out to a Cancel/Reschedule submenu).
   const body =
     `👋 *Welcome to Sharma Bajaj Service Centre!*\n\n` +
-    `Your one-stop assistant for bookings, status checks, and cancellations.\n\n` +
+    `Your one-stop assistant for bookings, status checks, cancellations, and reschedules.\n\n` +
     `📌 *Quick commands:*\n` +
     `• Say *BOOK* — start a new service booking\n` +
     `• Say *STATUS* — check your active booking\n` +
-    `• Say *CANCEL* — cancel a booking\n\n` +
+    `• Say *CANCEL* or *RESCHEDULE* — manage your booking\n\n` +
     `Or tap a button below:`
 
   await sendButtons(phone, body, [
     { id: 'action_book', title: '📅 Book Service' },
     { id: 'action_status', title: '📊 My Status' },
+    { id: 'action_manage', title: '✏️ Manage Booking' },
+  ])
+}
+
+// "Manage Booking" entry point. Shows a 2-button submenu asking whether
+// the user wants to cancel or reschedule. Each sub-action reuses the
+// existing cancel / reschedule flows. If the appointment is within
+// 30 min, both branches fall through to a Call Workshop reply (handled
+// by the per-flow lock check).
+async function handleManageBookingEntry(phone: string) {
+  const body =
+    `What would you like to do with your booking?\n\n` +
+    `Tap *Cancel* to cancel, or *Reschedule* to pick a new slot.`
+  await sendButtons(phone, body, [
+    { id: 'manage_cancel', title: '❌ Cancel Booking' },
+    { id: 'manage_reschedule', title: '🔁 Reschedule' },
   ])
 }
 
