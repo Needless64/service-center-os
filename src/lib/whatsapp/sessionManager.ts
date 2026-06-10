@@ -31,6 +31,7 @@ export type SessionData = {
   activeBookingId?: string
   activeBookingDocId?: string
   onboardedAt?: number
+  language?: 'en' | 'gu'
   lastActivity: number
 }
 

@@ -3,6 +3,7 @@ import { getCustomerByPhone, getLatestActiveBooking, getSlot } from '../../sanit
 import { markBookingConfirmed, rescheduleBooking } from '../../sanity/mutations'
 import { getSession, updateSession, resetSession } from '../sessionManager'
 import { getAvailableDays } from '../slotHelper'
+import { t } from '../messages'
 import { format, differenceInMinutes } from 'date-fns'
 import { RESCHEDULE_LOCK_MINUTES } from '../locks'
 import { getAgencyPhone } from '../env'
@@ -37,13 +38,14 @@ async function sendLockErrorWithCall(phone: string, message: string) {
 // ─── Confirm ────────────────────────────────────────────────────────────────
 
 export async function handleRemindConfirm(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
-  if (!customer) { await sendText(phone, 'No active booking found.'); return }
+  if (!customer) { await sendText(phone, t(lang, 'remind.no_booking')); return }
   const booking = await getLatestActiveBooking(customer._id, todayIST())
-  if (!booking) { await sendText(phone, 'No active booking found.'); return }
+  if (!booking) { await sendText(phone, t(lang, 'remind.no_active')); return }
 
   if (booking.confirmedAt) {
-    await sendText(phone, `✅ Already confirmed. See you on ${booking.scheduledDate} at ${booking.scheduledTime}!`)
+    await sendText(phone, t(lang, 'remind.already_confirmed', booking.scheduledDate, booking.scheduledTime))
     return
   }
 
@@ -52,7 +54,7 @@ export async function handleRemindConfirm(phone: string) {
   const dateFormatted = format(new Date(`${booking.scheduledDate}T12:00:00+05:30`), 'EEE, d MMM')
   await sendText(
     phone,
-    `✅ Confirmed! Your *${formatServiceLabel(booking.serviceType)}* for *${booking.vehicleNumber}* is locked in.\n\n📅 ${dateFormatted} @ ${timeFormatted}\n\nSee you then! 🙏`
+    t(lang, 'remind.confirmed.full', formatServiceLabel(booking.serviceType), booking.vehicleNumber, dateFormatted, timeFormatted)
   )
 }
 
@@ -70,18 +72,19 @@ function formatServiceLabel(value: string): string {
 // ─── Reschedule (entry, dispatched from conversation handler) ───────────────
 
 export async function startReschedule(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
-  if (!customer) { await sendText(phone, 'No booking found.'); return }
+  if (!customer) { await sendText(phone, t(lang, 'remind.no_booking')); return }
   const booking = await getLatestActiveBooking(customer._id, todayIST())
-  if (!booking) { await sendText(phone, 'No active booking found.'); return }
+  if (!booking) { await sendText(phone, t(lang, 'remind.no_active')); return }
 
   if (booking.confirmedAt) {
-    await sendLockErrorWithCall(phone, `🔒 This appointment is already confirmed and can't be rescheduled online. To make changes, please call us.`)
+    await sendLockErrorWithCall(phone, t(lang, 'remind.reschedule_locked_confirmed'))
     return
   }
   const minutesUntil = minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime)
   if (minutesUntil <= RESCHEDULE_LOCK_MINUTES) {
-    await sendLockErrorWithCall(phone, `⚠️ Too close to your appointment (within ${RESCHEDULE_LOCK_MINUTES} min). Please call us to reschedule.`)
+    await sendLockErrorWithCall(phone, t(lang, 'remind.too_close', String(RESCHEDULE_LOCK_MINUTES)))
     return
   }
 
@@ -89,9 +92,10 @@ export async function startReschedule(phone: string) {
 }
 
 async function openReschedulePicker(phone: string, bookingDocId: string, bookingId: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const days = await getAvailableDays(7)
   if (days.length === 0) {
-    await sendText(phone, `😔 No slots available in the coming days. Please call us to reschedule.`)
+    await sendText(phone, t(lang, 'remind.no_slots'))
     return
   }
   await updateSession(phone, {
@@ -115,15 +119,16 @@ async function openReschedulePicker(phone: string, bookingDocId: string, booking
 // but uses the reschedule flow's session state.
 export async function handleRescheduleDaySelection(phone: string, dateStr: string) {
   const session = await getSession(phone)
+  const lang = session.language || 'en'
   if (session.state !== 'AWAITING_RESCHEDULE_DATE' || !session.activeBookingDocId) {
-    await sendText(phone, `Reschedule session expired. Reply *reschedule* to start again.`)
+    await sendText(phone, t(lang, 'remind.session_expired'))
     await resetSession(phone)
     return
   }
   const days = await getAvailableDays(7)
   const day = days.find((d) => d.date === dateStr)
   if (!day || day.slots.length === 0) {
-    await sendText(phone, `No slots available for that day. Please choose another.`)
+    await sendText(phone, t(lang, 'booking.date.empty'))
     await openReschedulePicker(phone, session.activeBookingDocId, session.activeBookingId!)
     return
   }
@@ -146,8 +151,9 @@ export async function handleRescheduleDaySelection(phone: string, dateStr: strin
 // to close the race where a user sits in the picker for >30 min.
 export async function handleRescheduleSlotSelection(phone: string, slotPayload: string) {
   const session = await getSession(phone)
+  const lang = session.language || 'en'
   if (session.state !== 'AWAITING_RESCHEDULE_TIME' || !session.activeBookingDocId) {
-    await sendText(phone, `Reschedule session expired. Reply *reschedule* to start again.`)
+    await sendText(phone, t(lang, 'remind.session_expired'))
     await resetSession(phone)
     return
   }
@@ -162,21 +168,21 @@ export async function handleRescheduleSlotSelection(phone: string, slotPayload: 
 
   // Re-fetch the booking to check the lock at commit time
   const customer = await getCustomerByPhone(phone)
-  if (!customer) { await sendText(phone, 'Customer record not found.'); return }
+  if (!customer) { await sendText(phone, t(lang, 'customer_record_not_found')); return }
   const booking = await getLatestActiveBooking(customer._id, todayIST())
   if (!booking || booking._id !== session.activeBookingDocId) {
-    await sendText(phone, 'Booking not found. Reply *status* to see your active bookings.')
+    await sendText(phone, t(lang, 'remind.booking_not_found_status'))
     await resetSession(phone)
     return
   }
   if (booking.confirmedAt) {
-    await sendLockErrorWithCall(phone, `🔒 This appointment is already confirmed and can't be rescheduled online. To make changes, please call us.`)
+    await sendLockErrorWithCall(phone, t(lang, 'remind.reschedule_locked_confirmed'))
     await resetSession(phone)
     return
   }
   const minutesUntil = minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime)
   if (minutesUntil <= RESCHEDULE_LOCK_MINUTES) {
-    await sendLockErrorWithCall(phone, `⚠️ Too close to your appointment (within ${RESCHEDULE_LOCK_MINUTES} min). Please call us to reschedule.`)
+    await sendLockErrorWithCall(phone, t(lang, 'remind.too_close', String(RESCHEDULE_LOCK_MINUTES)))
     await resetSession(phone)
     return
   }
@@ -184,7 +190,7 @@ export async function handleRescheduleSlotSelection(phone: string, slotPayload: 
   // Resolve old slot for the release-half of the swap
   const oldSlot = await getSlot(booking.scheduledDate, booking.scheduledTime)
   if (!oldSlot) {
-    await sendText(phone, `Could not locate your current slot. Please call us to reschedule.`)
+    await sendText(phone, t(lang, 'remind.slot_not_found'))
     await resetSession(phone)
     return
   }
@@ -195,7 +201,11 @@ export async function handleRescheduleSlotSelection(phone: string, slotPayload: 
   const dateFormatted = format(new Date(`${date}T12:00:00+05:30`), 'EEE, d MMM yyyy')
   await sendText(
     phone,
-    `✅ *Rescheduled!*\n\n🎫 Booking: *${booking.bookingId}*\n📅 New date: ${dateFormatted}\n⏰ New time: ${timeFormatted}\n\nWe'll send a fresh reminder before your appointment.`
+    t(lang, 'remind.reschedule_success_title') + '\n\n' +
+    t(lang, 'remind.reschedule_success_booking', booking.bookingId) + '\n' +
+    t(lang, 'remind.reschedule_success_date', dateFormatted) + '\n' +
+    t(lang, 'remind.reschedule_success_time', timeFormatted) + '\n\n' +
+    t(lang, 'remind.reschedule_success_footer')
   )
   await resetSession(phone)
 }

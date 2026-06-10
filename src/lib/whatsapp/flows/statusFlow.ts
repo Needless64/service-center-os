@@ -3,6 +3,7 @@ import { getCustomerByPhone, getActiveBookingForCustomer, getAllActiveBookingsFo
 import { cancelBooking, releaseSlot } from '../../sanity/mutations'
 import { STATUS_EMOJI, STATUS_LABELS, formatServiceType } from '../intentParser'
 import { getSession, updateSession, resetSession } from '../sessionManager'
+import { t } from '../messages'
 import { format, differenceInMinutes } from 'date-fns'
 import { RESCHEDULE_LOCK_MINUTES } from '../locks'
 import { getAgencyPhone } from '../env'
@@ -28,17 +29,18 @@ async function sendLockErrorWithCall(phone: string, message: string) {
 // ─── Status check ─────────────────────────────────────────────────────────────
 
 export async function handleStatusCheck(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
 
   if (!customer) {
-    await sendText(phone, `No booking found for this number.\n\nTo book a service, reply *book* or *service*.`)
+    await sendText(phone, t(lang, 'status.no_booking'))
     return
   }
 
   const bookings = await getAllActiveBookingsForCustomer(customer._id)
 
   if (bookings.length === 0) {
-    await sendText(phone, `No active booking found, ${customer.name}.\n\nTo book a new service, reply *book*.`)
+    await sendText(phone, t(lang, 'status.no_active', customer.name))
     return
   }
 
@@ -71,23 +73,28 @@ export async function handleStatusCheck(phone: string) {
 // ─── Show status for a specific booking ──────────────────────────────────────
 
 export async function showBookingStatus(phone: string, booking: SanityBookingLike) {
+  const lang = (await getSession(phone)).language || 'en'
   const emoji = STATUS_EMOJI[booking.status] ?? '📋'
   const label = STATUS_LABELS[booking.status] ?? booking.status
   const dateFormatted = format(new Date(booking.scheduledDate + 'T00:00:00'), 'EEE, d MMM yyyy')
   const timeFormatted = format(new Date(`2000-01-01T${booking.scheduledTime}`), 'h:mm a')
 
-  let message = `${emoji} *Service Status*\n\n`
-  message += `🎫 Booking: *${booking.bookingId}*\n`
-  message += `🚗 Vehicle: ${booking.vehicleNumber} (${booking.vehicleModel ?? ''})\n`
-  message += `📅 Appointment: ${dateFormatted} @ ${timeFormatted}\n`
-  message += `🔧 Service: ${formatServiceType(booking.serviceType)}\n`
-  message += `\n🔄 Status: *${label}*`
+  let message = t(lang, 'status.body.full',
+    emoji,
+    booking.bookingId,
+    booking.vehicleNumber,
+    booking.vehicleModel ?? '',
+    dateFormatted,
+    timeFormatted,
+    formatServiceType(booking.serviceType),
+    label
+  )
 
   if (booking.status === 'booked') {
     const minsLeft = minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime)
     const canCancel = minsLeft > RESCHEDULE_LOCK_MINUTES
 
-    message += `\n\n_Reminders will be sent before your appointment._`
+    message += `\n\n${t(lang, 'status.body.reminders_hint')}`
     await updateSession(phone, { state: 'IDLE', activeBookingDocId: booking._id, activeBookingId: booking.bookingId })
     await sendText(phone, message)
 
@@ -107,13 +114,14 @@ export async function showBookingStatus(phone: string, booking: SanityBookingLik
 // ─── Handle booking selection from picker ───────────────────────────────────
 
 export async function handleBookingSelection(phone: string, bookingDocId: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
   if (!customer) return
 
   const bookings = await getAllActiveBookingsForCustomer(customer._id)
   const booking = bookings.find((b) => b._id === bookingDocId)
   if (!booking) {
-    await sendText(phone, `Booking not found. Reply *status* to check again.`)
+    await sendText(phone, t(lang, 'status.picker_help'))
     return
   }
 
@@ -123,9 +131,10 @@ export async function handleBookingSelection(phone: string, bookingDocId: string
 // ─── Cancel request ───────────────────────────────────────────────────────────
 
 export async function handleCancelRequest(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
   if (!customer) {
-    await sendText(phone, `No booking found. Reply *book* to schedule a service.`)
+    await sendText(phone, t(lang, 'status.no_booking_cta'))
     return
   }
 
@@ -133,7 +142,7 @@ export async function handleCancelRequest(phone: string) {
   const cancellable = bookings.filter((b) => b.status === 'booked')
 
   if (cancellable.length === 0) {
-    await sendText(phone, `No cancellable booking found. Only *Booked* appointments can be cancelled.`)
+    await sendText(phone, t(lang, 'status.cancel_bookings_empty'))
     return
   }
 
@@ -154,15 +163,16 @@ export async function handleCancelRequest(phone: string) {
   const more = cancellable.length - recent.length
   const moreHint = more > 0 ? `\n_Plus ${more} more — please call us for those._` : ''
 
-  await sendList(phone, `Which booking to cancel?${moreHint}`, 'Select', [
+  await sendList(phone, t(lang, 'status.cancel_picker', moreHint ?? ''), 'Select', [
     { title: 'Select to Cancel', rows },
   ])
 }
 
 async function promptCancel(phone: string, booking: SanityBookingLike) {
+  const lang = (await getSession(phone)).language || 'en'
   const minsLeft = minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime)
   if (minsLeft <= RESCHEDULE_LOCK_MINUTES) {
-    await sendLockErrorWithCall(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us to make changes.`)
+    await sendLockErrorWithCall(phone, t(lang, 'status.cancel_too_close', String(RESCHEDULE_LOCK_MINUTES)))
     return
   }
 
@@ -180,13 +190,14 @@ async function promptCancel(phone: string, booking: SanityBookingLike) {
 // ─── Handle cancel booking selection from picker ─────────────────────────────
 
 export async function handleCancelBookingSelection(phone: string, bookingDocId: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
   if (!customer) return
 
   const bookings = await getAllActiveBookingsForCustomer(customer._id)
   const booking = bookings.find((b) => b._id === bookingDocId)
   if (!booking) {
-    await sendText(phone, `Booking not found.`)
+    await sendText(phone, t(lang, 'status.booking_not_found'))
     return
   }
   await promptCancel(phone, booking)
@@ -196,10 +207,11 @@ export async function handleCancelBookingSelection(phone: string, bookingDocId: 
 
 export async function handleConfirmCancel(phone: string) {
   const session = await getSession(phone)
+  const lang = session.language || 'en'
   const { activeBookingDocId, activeBookingId } = session
 
   if (!activeBookingDocId) {
-    await sendText(phone, `Could not find your booking. Please try again.`)
+    await sendText(phone, t(lang, 'status.cancel_failed_lookup'))
     await resetSession(phone)
     return
   }
@@ -209,7 +221,7 @@ export async function handleConfirmCancel(phone: string) {
     const bookings = await getAllActiveBookingsForCustomer(customer._id)
     const booking = bookings.find((b) => b._id === activeBookingDocId)
     if (booking && minutesUntilAppointment(booking.scheduledDate, booking.scheduledTime) <= RESCHEDULE_LOCK_MINUTES) {
-      await sendLockErrorWithCall(phone, `⚠️ Cannot cancel — appointment is within ${RESCHEDULE_LOCK_MINUTES} minutes. Please call us to make changes.`)
+      await sendLockErrorWithCall(phone, t(lang, 'status.cancel_too_close', String(RESCHEDULE_LOCK_MINUTES)))
       await resetSession(phone)
       return
     }

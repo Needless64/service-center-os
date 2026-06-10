@@ -1,5 +1,6 @@
 import { sendText, sendTemplateWithFallback } from '../client'
 import type { SanityBooking } from '../../sanity/queries'
+import { t } from '../messages'
 import { format } from 'date-fns'
 import { formatServiceType } from '../intentParser'
 import { getAgencyPhone } from '../env'
@@ -26,6 +27,7 @@ export function buildReminderMessage(booking: SanityBooking): string {
 // 24h/3h/30m — the underlying query pre-filters un-reminded bookings
 // and the window check in the route ensures this fires once per ticket.
 export async function sendReminder(booking: SanityBooking, customerPhone: string, _type: '1h' = '1h') {
+  const lang = 'en'  // reminders always in English for now
   const dateFormatted = format(new Date(`${booking.scheduledDate}T12:00:00+05:30`), 'EEE, d MMM yyyy')
   const timeFormatted = format(new Date(`2000-01-01T${booking.scheduledTime}`), 'h:mm a')
   const customerName = (booking.customer as unknown as { name?: string })?.name ?? 'Customer'
@@ -48,10 +50,10 @@ export async function sendReminder(booking: SanityBooking, customerPhone: string
   if (phoneNumber) {
     await sendText(
       customerPhone,
-      `Need to talk to us? Just long-press this number to call our workshop:\n\n📞 ${phoneNumber}`
+      t(lang, 'remind.workshop_call', phoneNumber)
     )
   } else {
-    await sendText(customerPhone, 'Need to talk to us? Just reply *help* and we will guide you.')
+    await sendText(customerPhone, t(lang, 'remind.workshop_help'))
   }
   return sendResult
 }

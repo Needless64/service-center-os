@@ -4,6 +4,7 @@ import { formatServiceType } from '../intentParser'
 import { getAvailableDays } from '../slotHelper'
 import { getCustomerByPhone, getSlot, getDefaultBranch } from '../../sanity/queries'
 import { createCustomer, createBooking, incrementSlot, addVehicleToCustomer, releaseSlot, updateBookingStatus } from '../../sanity/mutations'
+import { t } from '../messages'
 import { format } from 'date-fns'
 
 const SERVICE_OPTIONS = [
@@ -33,6 +34,7 @@ export async function startBooking(phone: string) {
 export async function handleServiceTypeSelection(phone: string, serviceTypeId: string) {
   const serviceType = serviceTypeId.replace('svc_', '')
   const session = await getSession(phone)
+  const lang = session.language || 'en'
 
   if (session.isReturningCustomer && session.existingCustomerId) {
     const customer = await getCustomerByPhone(phone)
@@ -40,7 +42,7 @@ export async function handleServiceTypeSelection(phone: string, serviceTypeId: s
       await updateSession(phone, { serviceType, state: 'COLLECTING_VEHICLE_NUMBER' })
       await sendButtons(
         phone,
-        `*${formatServiceType(serviceType)}* selected.\n\nWhich vehicle?`,
+        `*${formatServiceType(serviceType)}* selected.\n\n${t(lang, 'booking.vehicle.which')}`,
         [
           { id: 'vehicles_menu', title: '🚗 Previous Vehicles' },
           { id: 'vehicle_new', title: '➕ New Vehicle' },
@@ -51,14 +53,15 @@ export async function handleServiceTypeSelection(phone: string, serviceTypeId: s
   }
 
   await updateSession(phone, { serviceType, state: 'COLLECTING_VEHICLE_NUMBER' })
-  await sendText(phone, `*${formatServiceType(serviceType)}* selected.\n\nEnter your *vehicle registration number*:\n_(Example: TS09AB1234)_`)
+  await sendText(phone, `*${formatServiceType(serviceType)}* ${t(lang, 'booking.vehicle.selected', '')}\n${t(lang, 'booking.vehicle.number_prompt')}`)
 }
 
 export async function showPreviousVehiclesMenu(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const customer = await getCustomerByPhone(phone)
   if (!customer?.vehicles?.length) {
     await updateSession(phone, { state: 'COLLECTING_VEHICLE_NUMBER' })
-    await sendText(phone, `Enter your *vehicle registration number*:\n_(Example: TS09AB1234)_`)
+    await sendText(phone, t(lang, 'booking.vehicle.number_prompt'))
     return
   }
   const rows = customer.vehicles.map((v) => ({
@@ -72,20 +75,22 @@ export async function showPreviousVehiclesMenu(phone: string) {
 }
 
 export async function handleVehicleSelection(phone: string, vehicleNumber: string) {
+  const lang = (await getSession(phone)).language || 'en'
   if (vehicleNumber === 'new') {
     await updateSession(phone, { vehicleNumber: undefined, vehicleModel: undefined })
-    await sendText(phone, `Enter the *vehicle registration number*:\n_(Example: TS09AB1234)_`)
+    await sendText(phone, t(lang, 'booking.vehicle.number_prompt'))
     return
   }
   const customer = await getCustomerByPhone(phone)
   const vehicle = customer?.vehicles?.find((v) => v.vehicleNumber === vehicleNumber)
   await updateSession(phone, { vehicleNumber, vehicleModel: vehicle?.vehicleModel ?? '', state: 'SELECTING_SLOT_DATE' })
-  await sendText(phone, `*${vehicleNumber}* selected.`)
+  await sendText(phone, t(lang, 'booking.vehicle.selected', vehicleNumber))
   await showSlotSelection(phone)
 }
 
 export async function handleBookingTextInput(phone: string, text: string) {
   const session = await getSession(phone)
+  const lang = session.language || 'en'
 
   switch (session.state) {
     case 'COLLECTING_VEHICLE_NUMBER': {
@@ -100,7 +105,7 @@ export async function handleBookingTextInput(phone: string, text: string) {
       if (session.isReturningCustomer) {
         await showSlotSelection(phone)
       } else {
-        await sendText(phone, `Now, what is your *full name*?`)
+        await sendText(phone, t(lang, 'booking.name.prompt'))
       }
       break
     }
@@ -113,6 +118,7 @@ export async function handleBookingTextInput(phone: string, text: string) {
 }
 
 async function showSlotSelection(phone: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const days = await getAvailableDays(7)
   if (days.length === 0) {
     await sendText(phone, `😔 No slots available in the coming days.\n\nPlease call us directly to book.`)
@@ -135,6 +141,7 @@ async function showSlotSelection(phone: string) {
 }
 
 export async function handleDaySelection(phone: string, dateStr: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const days = await getAvailableDays(7)
   const day = days.find((d) => d.date === dateStr)
 
@@ -181,10 +188,11 @@ export async function handleDaySelection(phone: string, dateStr: string) {
 // Dispatched when the user picks an hour bucket. Shows the 6-min
 // slots for that hour.
 export async function handleHourSelection(phone: string, hourPayload: string) {
+  const lang = (await getSession(phone)).language || 'en'
   // hourPayload = "hour_2026-06-06_09"
   const m = hourPayload.match(/^hour_(\d{4}-\d{2}-\d{2})_(\d{2})$/)
   if (!m) {
-    await sendText(phone, `Sorry, that selection is invalid. Try again.`)
+    await sendText(phone, t(lang, 'booking.hour.invalid'))
     return
   }
   const [, dateStr, hour] = m
@@ -192,7 +200,7 @@ export async function handleHourSelection(phone: string, hourPayload: string) {
   const days = await getAvailableDays(7)
   const day = days.find((d) => d.date === dateStr)
   if (!day) {
-    await sendText(phone, `Sorry, day not found. Please choose another.`)
+    await sendText(phone, t(lang, 'booking.hour.day_missing'))
     await showSlotSelection(phone)
     return
   }
@@ -202,7 +210,7 @@ export async function handleHourSelection(phone: string, hourPayload: string) {
     .slice(0, 10)
 
   if (slotsInHour.length === 0) {
-    await sendText(phone, `That hour is now full. Please pick another.`)
+    await sendText(phone, t(lang, 'booking.hour.full'))
     await handleDaySelection(phone, dateStr)
     return
   }
@@ -221,6 +229,7 @@ export async function handleHourSelection(phone: string, hourPayload: string) {
 }
 
 export async function handleSlotSelection(phone: string, slotPayload: string) {
+  const lang = (await getSession(phone)).language || 'en'
   const withoutPrefix = slotPayload.replace('slot_', '')
   const date = withoutPrefix.slice(0, 10)
   const rest = withoutPrefix.slice(11)
@@ -233,13 +242,13 @@ export async function handleSlotSelection(phone: string, slotPayload: string) {
   const timeFormatted = format(new Date(`2000-01-01T${time}`), 'h:mm a')
   const dateFormatted = format(new Date(date), 'EEE, d MMM yyyy')
 
-  const summary = [
-    `📋 *Booking Summary*`, ``,
-    `🔧 Service: ${formatServiceType(session.serviceType ?? '')}`,
-    `🚗 Vehicle: ${session.vehicleNumber} (${session.vehicleModel ?? ''})`,
-    `📅 Date: ${dateFormatted}`, `⏰ Time: ${timeFormatted}`, ``,
-    `Confirm this booking?`,
-  ].join('\n')
+  const summary = t(lang, 'booking.summary.full',
+    formatServiceType(session.serviceType ?? ''),
+    session.vehicleNumber ?? '',
+    session.vehicleModel ?? '',
+    dateFormatted,
+    timeFormatted
+  )
 
   await sendButtons(phone, summary, [
     { id: 'confirm_booking', title: '✅ Confirm' },
@@ -249,6 +258,7 @@ export async function handleSlotSelection(phone: string, slotPayload: string) {
 
 export async function confirmBooking(phone: string) {
   const session = await getSession(phone)
+  const lang = session.language || 'en'
   try {
     let customerId = session.existingCustomerId
     if (!customerId) {
@@ -280,12 +290,19 @@ export async function confirmBooking(phone: string) {
     }
     const timeFormatted = format(new Date(`2000-01-01T${session.selectedTime}`), 'h:mm a')
     const dateFormatted = format(new Date(session.selectedDate!), 'EEE, d MMM yyyy')
-    await sendText(phone, `✅ *Booking Confirmed!*\n\n🎫 Booking ID: *${booking.bookingId}*\n📅 Date: ${dateFormatted}\n⏰ Time: ${timeFormatted}\n🚗 Vehicle: ${session.vehicleNumber}\n🔧 Service: ${formatServiceType(session.serviceType ?? '')}\n\nWe'll send you reminders before your appointment.\n\nTo check status, reply: *status*\nTo cancel, reply: *cancel*\n\nSee you on ${dateFormatted}! 🙏`)
+    await sendText(phone, t(lang, 'booking.confirmed.full',
+      booking.bookingId,
+      dateFormatted,
+      timeFormatted,
+      session.vehicleNumber ?? '',
+      formatServiceType(session.serviceType ?? ''),
+      dateFormatted
+    ))
     await updateSession(phone, { state: 'BOOKING_CONFIRMED' })
     await resetSession(phone)
   } catch (err) {
     console.error('[bookingFlow] confirm error:', err)
-    await sendText(phone, `Sorry, something went wrong. Please try again or call us directly.`)
+    await sendText(phone, t(lang, 'booking.error'))
     await resetSession(phone)
   }
 }
