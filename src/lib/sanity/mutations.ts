@@ -237,3 +237,9 @@ export async function markDelivered(bookingDocId: string, finalCost?: number) {
     })
     .commit()
 }
+export async function setCustomerLanguage(customerId: string, language: string) {
+  return sanityClient
+    .patch(customerId)
+    .set({ language: language, updatedAt: new Date().toISOString() })
+    .commit()
+}

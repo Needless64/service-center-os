@@ -6,6 +6,7 @@ import { handleStatusCheck, handleCancelRequest, handleConfirmCancel, handleBook
 import { handleRemindConfirm, handleRemindReschedule, startReschedule, handleRescheduleDaySelection, handleRescheduleSlotSelection } from './flows/reminderActions'
 import { t, BILINGUAL_GREETING } from './messages'
 import type { Lang } from './messages'
+import { getUserLanguage, setUserLanguage } from './language'
 
 export async function handleIncomingMessage(phone: string, text: string, interactiveId?: string) {
   let session
@@ -23,15 +24,16 @@ export async function handleIncomingMessage(phone: string, text: string, interac
     }
 
     // If language not set yet, check for text-based language selection first
-    if (session && !session.language) {
+    const userLang = await getUserLanguage(phone)
+    if (session && !userLang) {
       const lower = text.trim().toLowerCase()
       if (lower === 'english' || lower === 'en') {
-        await updateSession(phone, { language: 'en' })
+        await setUserLanguage(phone, 'en')
         await sendWelcome(phone)
         return
       }
       if (lower === 'gujarati' || lower === 'gu' || lower === 'guj') {
-        await updateSession(phone, { language: 'gu' })
+        await setUserLanguage(phone, 'gu')
         await sendWelcome(phone)
         return
       }
@@ -51,8 +53,8 @@ export async function handleIncomingMessage(phone: string, text: string, interac
         lower === 'start' || lower === 'book' || lower === 'status'
       if (escape) {
         await resetSession(phone)
-        const lang = session?.language || 'en'
-        await sendText(phone, t(lang, 'handler.escape'))
+        const escapeLang = await getUserLanguage(phone) || 'en'
+        await sendText(phone, t(escapeLang, 'handler.escape'))
         return
       }
       await handleBookingTextInput(phone, text)
@@ -130,21 +132,20 @@ async function handleInteractiveReply(phone: string, id: string) {
   } catch (err) {
     console.error('[handler] interactive reply failed:', err)
     try {
-      const lang = (await getSession(phone)).language || 'en'
+      const errLang = await getUserLanguage(phone) || 'en'
       await resetSession(phone)
-      await sendText(phone, t(lang, 'handler.error.interactive'))
+      await sendText(phone, t(errLang, 'handler.error.interactive'))
     } catch {}
   }
 }
 
 async function handleLanguageSelection(phone: string, language: Lang) {
-  await updateSession(phone, { language, state: 'IDLE' })
+  await setUserLanguage(phone, language)
   await sendWelcome(phone)
 }
 
 async function sendWelcome(phone: string) {
-  const session = await getSession(phone)
-  const lang = session.language
+  const lang = await getUserLanguage(phone)
 
   // If language not set yet \u2014 show bilingual greeting + language picker
   if (!lang) {
@@ -175,7 +176,7 @@ async function sendWelcome(phone: string) {
 }
 
 async function handleManageBookingEntry(phone: string) {
-  const lang = (await getSession(phone)).language || 'en'
+  const lang = await getUserLanguage(phone) || 'en'
   await sendButtons(phone, t(lang, 'welcome.manage.body'), [
     { id: 'manage_cancel', title: '❌ Cancel Booking' },
     { id: 'manage_reschedule', title: '🔁 Reschedule' },
