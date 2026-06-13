@@ -20,3 +20,21 @@ export function normalizePhone(
   }
   return null;
 }
+
+export function generateTimes(
+  start: string,
+  end: string,
+  slotDurationMinutes: number = 6, // Default to 6 minutes for 10 slots per hour
+): string[] {
+  const times: string[] = [];
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
+  for (let m = startMin; m < endMin; m += slotDurationMinutes) {
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    times.push(`${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`);
+  }
+  return times;
+}
