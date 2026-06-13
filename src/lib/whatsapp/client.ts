@@ -1,24 +1,24 @@
-import { normalizePhone } from '../utils'
+import { normalizePhone } from "../utils";
 
-const WA_API_URL = `https://graph.facebook.com/v21.0`
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!
-const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!
+const WA_API_URL = `https://graph.facebook.com/v21.0`;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
 
 async function post(endpoint: string, body: object) {
   const res = await fetch(`${WA_API_URL}/${endpoint}`, {
-    method: 'POST',
+    method: "POST",
     headers: {
       Authorization: `Bearer ${ACCESS_TOKEN}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-  })
+  });
   if (!res.ok) {
-    const err = await res.text()
-    console.error('[WA] API error:', res.status, err)
-    throw new Error(`WhatsApp API ${res.status}: ${err}`)
+    const err = await res.text();
+    console.error("[WA] API error:", res.status, err);
+    throw new Error(`WhatsApp API ${res.status}: ${err}`);
   }
-  return res.json()
+  return res.json();
 }
 
 /**
@@ -37,26 +37,29 @@ async function post(endpoint: string, body: object) {
 export async function sendTemplate(
   to: string,
   templateName: string,
-  languageCode: string = 'en',
-  bodyVariables: string[] = []
+  languageCode: string = "en",
+  bodyVariables: string[] = [],
 ) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
-    messaging_product: 'whatsapp',
+    messaging_product: "whatsapp",
     to,
-    type: 'template',
+    type: "template",
     template: {
       name: templateName,
       language: { code: languageCode },
       components: bodyVariables.length
         ? [
             {
-              type: 'body',
-              parameters: bodyVariables.map((v) => ({ type: 'text', text: String(v ?? '') })),
+              type: "body",
+              parameters: bodyVariables.map((v) => ({
+                type: "text",
+                text: String(v ?? ""),
+              })),
             },
           ]
         : [],
     },
-  })
+  });
 }
 
 /**
@@ -73,20 +76,22 @@ export async function sendTemplateWithFallback(
   to: string,
   templateName: string,
   fallbackText: string,
-  bodyVariables: string[] = []
+  bodyVariables: string[] = [],
 ) {
   try {
-    return await sendTemplate(to, templateName, 'en', bodyVariables)
+    return await sendTemplate(to, templateName, "en", bodyVariables);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = err instanceof Error ? err.message : String(err);
     // Codes that mean "template won't work, use freeform": 132001, 131047, 131026
-    const fallbackCodes = ['132001', '131047', '131026', '131000']
-    const shouldFallback = fallbackCodes.some((c) => msg.includes(c))
+    const fallbackCodes = ["132001", "131047", "131026", "131000"];
+    const shouldFallback = fallbackCodes.some((c) => msg.includes(c));
     if (shouldFallback) {
-      console.warn(`[WA] template ${templateName} failed (${msg.split(':')[1]?.trim() ?? 'unknown'}); falling back to freeform`)
-      return sendText(to, fallbackText)
+      console.warn(
+        `[WA] template ${templateName} failed (${msg.split(":")[1]?.trim() ?? "unknown"}); falling back to freeform`,
+      );
+      return sendText(to, fallbackText);
     }
-    throw err
+    throw err;
   }
 }
 
@@ -103,138 +108,156 @@ export async function sendTemplateTryMultiple(
   to: string,
   templateNames: string[],
   fallbackText: string,
-  bodyVariables: string[] = []
+  bodyVariables: string[] = [],
 ) {
-  let lastErr: unknown = null
+  let lastErr: unknown = null;
   for (const name of templateNames) {
     try {
-      return await sendTemplate(to, name, 'en', bodyVariables)
+      return await sendTemplate(to, name, "en", bodyVariables);
     } catch (err) {
-      lastErr = err
-      const msg = err instanceof Error ? err.message : String(err)
-      const fallbackCodes = ['132001', '131047', '131026', '131000']
-      if (!fallbackCodes.some((c) => msg.includes(c))) throw err
-      console.warn(`[WA] template ${name} not available; trying next candidate`)
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const fallbackCodes = ["132001", "131047", "131026", "131000"];
+      if (!fallbackCodes.some((c) => msg.includes(c))) throw err;
+      console.warn(
+        `[WA] template ${name} not available; trying next candidate`,
+      );
     }
   }
-  console.warn(`[WA] all ${templateNames.length} template candidates failed; falling back to freeform`)
-  return sendText(to, fallbackText)
+  console.warn(
+    `[WA] all ${templateNames.length} template candidates failed; falling back to freeform`,
+  );
+  return sendText(to, fallbackText);
 }
 
 // ─── Send plain text ─────────────────────────────────────────────────────────
 
 export async function sendText(to: string, text: string) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
-    messaging_product: 'whatsapp',
+    messaging_product: "whatsapp",
     to,
-    type: 'text',
+    type: "text",
     text: { body: text, preview_url: false },
-  })
+  });
 }
 
 // ─── Send interactive list (menu) ────────────────────────────────────────────
 
-export type ListRow = { id: string; title: string; description?: string }
-export type ListSection = { title: string; rows: ListRow[] }
+export type ListRow = { id: string; title: string; description?: string };
+export type ListSection = { title: string; rows: ListRow[] };
 
 export async function sendList(
   to: string,
   body: string,
   buttonLabel: string,
-  sections: ListSection[]
+  sections: ListSection[],
 ) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
-    messaging_product: 'whatsapp',
+    messaging_product: "whatsapp",
     to,
-    type: 'interactive',
+    type: "interactive",
     interactive: {
-      type: 'list',
+      type: "list",
       body: { text: body },
       action: { button: buttonLabel, sections },
     },
-  })
+  });
 }
 
 // ─── Send interactive reply buttons ─────────────────────────────────────────
 
-export type ReplyButton = { id: string; title: string }
+export type ReplyButton = { id: string; title: string };
 
 // Only quick-reply buttons are supported in v21.0 button messages.
 // `cta_url` with `tel:` schemes was rejected at runtime. The phone-number
 // CTA path is not exposed by the Cloud API for button messages, so we
 // encode the workshop phone as a plain text line in the body where the
 // customer can long-press to call.
-export type InteractiveButton = { id: string; title: string }
+export type InteractiveButton = { id: string; title: string };
 
-export async function sendButtons(to: string, body: string, buttons: InteractiveButton[]) {
+export async function sendButtons(
+  to: string,
+  body: string,
+  buttons: InteractiveButton[],
+) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
-    messaging_product: 'whatsapp',
+    messaging_product: "whatsapp",
     to,
-    type: 'interactive',
+    type: "interactive",
     interactive: {
-      type: 'button',
+      type: "button",
       body: { text: body },
       action: {
-        buttons: buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
+        buttons: buttons.map((b) => ({
+          type: "reply",
+          reply: { id: b.id, title: b.title },
+        })),
       },
     },
-  })
+  });
 }
 
 // ─── Mark as read ────────────────────────────────────────────────────────────
 
 export async function markAsRead(messageId: string) {
   return post(`${PHONE_NUMBER_ID}/messages`, {
-    messaging_product: 'whatsapp',
-    status: 'read',
+    messaging_product: "whatsapp",
+    status: "read",
     message_id: messageId,
-  })
+  });
 }
 
 // ─── Extract incoming message data ──────────────────────────────────────────
 
 export type IncomingMessage = {
-  from: string
-  messageId: string
-  type: 'text' | 'interactive' | 'other'
-  text?: string
-  interactiveId?: string
-  interactiveTitle?: string
-}
+  from: string;
+  messageId: string;
+  type: "text" | "interactive" | "other";
+  text?: string;
+  interactiveId?: string;
+  interactiveTitle?: string;
+};
 
-export function parseIncomingWebhook(body: Record<string, unknown>): IncomingMessage | null {
+export function parseIncomingWebhook(
+  body: Record<string, unknown>,
+): IncomingMessage | null {
   try {
-    const entry = (body.entry as unknown[])?.[0] as Record<string, unknown>
-    const changes = (entry?.changes as unknown[])?.[0] as Record<string, unknown>
-    const value = changes?.value as Record<string, unknown>
-    const messages = value?.messages as unknown[]
-    if (!messages?.length) return null
+    const entry = (body.entry as unknown[])?.[0] as Record<string, unknown>;
+    const changes = (entry?.changes as unknown[])?.[0] as Record<
+      string,
+      unknown
+    >;
+    const value = changes?.value as Record<string, unknown>;
+    const messages = value?.messages as unknown[];
+    if (!messages?.length) return null;
 
-    const msg = messages[0] as Record<string, unknown>
-    const from = normalizePhone(msg.from as string)
-    const messageId = msg.id as string
-    const type = msg.type as string
+    const msg = messages[0] as Record<string, unknown>;
+    const from = normalizePhone(msg.from as string);
+    if (!from) return null;
+    const messageId = msg.id as string;
+    const type = msg.type as string;
 
-    if (type === 'text') {
-      const textObj = msg.text as Record<string, unknown>
-      return { from, messageId, type: 'text', text: textObj?.body as string }
+    if (type === "text") {
+      const textObj = msg.text as Record<string, unknown>;
+      return { from, messageId, type: "text", text: textObj?.body as string };
     }
 
-    if (type === 'interactive') {
-      const interactive = msg.interactive as Record<string, unknown>
-      const reply = (interactive?.button_reply ?? interactive?.list_reply) as Record<string, unknown>
+    if (type === "interactive") {
+      const interactive = msg.interactive as Record<string, unknown>;
+      const reply = (interactive?.button_reply ??
+        interactive?.list_reply) as Record<string, unknown>;
       return {
         from,
         messageId,
-        type: 'interactive',
+        type: "interactive",
         interactiveId: reply?.id as string,
         interactiveTitle: reply?.title as string,
         text: reply?.title as string,
-      }
+      };
     }
 
-    return { from, messageId, type: 'other' }
+    return { from, messageId, type: "other" };
   } catch {
-    return null
+    return null;
   }
 }
